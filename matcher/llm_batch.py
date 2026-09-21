@@ -1,0 +1,173 @@
+"""LLM: один запрос — решения по всем названиям вакансий страницы."""
+
+from __future__ import annotations
+
+import json
+import re
+from dataclasses import dataclass
+from typing import Sequence
+
+import httpx
+from loguru import logger
+
+from config import llm_api_key, llm_base_url, llm_model, target_role
+from db.models import Vacancy
+
+
+@dataclass(frozen=True)
+class MatchDecision:
+    accepted: bool
+    score: float
+    reason: str
+
+
+SYSTEM_PROMPT = """\
+Ты — ассистент по отбору вакансий для кандидата.
+Тебе даны: текст резюме кандидата, целевая роль и список вакансий (id + название + компания).
+
+Задача: для КАЖДОЙ вакансии решить, стоит ли откликаться, судя по названию
+(и компании, если есть) относительно резюме и целевой роли.
+
+Правила:
+- Подходят роли близкие к Python / Backend / Django / FastAPI / микросервисы /
+  интеграции / боты на Python, Senior Python и т.п.
+- НЕ подходят: другой основной стек (C#, Java, Go, PHP, frontend-only, 1C, iOS/Android),
+  чистый Team Lead / Tech Lead / руководитель без сильного hands-on backend,
+  QA / аналитик / DevOps-only / data scientist без backend, C++/CV hardware без Python,
+  нерелевантные домены вроде «инженер-расчётчик» без IT-backend.
+- Fullstack на Python — скорее да; Fullstack с упором на React/Vue без Python — нет.
+- Если сомневаешься по одному названию — suitable=false и короткая reason.
+
+Ответ СТРОГО одним JSON-объектом без markdown:
+{
+  "results": [
+    {"hh_id": "...", "suitable": true, "score": 0.0, "reason": "кратко"}
+  ]
+}
+score от 0 до 1. В results должны быть ВСЕ переданные hh_id ровно один раз.
+"""
+
+
+def match_vacancies_batch(
+    vacancies: Sequence[Vacancy],
+    resume_text: str,
+    *,
+    role: str | None = None,
+) -> dict[str, MatchDecision]:
+    """Один запрос к LLM на весь список. Ключ — hh_id."""
+    if not vacancies:
+        return {}
+
+    key = llm_api_key()
+    if not key:
+        raise RuntimeError(
+            "Не задан OPENAI_API_KEY (или LLM_API_KEY) в hh_autoapply/.env"
+        )
+
+    role = role or target_role()
+    payload_vacancies = [
+        {
+            "hh_id": v.hh_id,
+            "title": v.title,
+            "company": v.company or "",
+        }
+        for v in vacancies
+    ]
+
+    user_content = (
+        f"Целевая роль: {role}\n\n"
+        f"=== РЕЗЮМЕ ===\n{resume_text}\n=== КОНЕЦ РЕЗЮМЕ ===\n\n"
+        f"Вакансии (JSON):\n{json.dumps(payload_vacancies, ensure_ascii=False)}"
+    )
+
+    model = llm_model()
+    url = f"{llm_base_url()}/chat/completions"
+    logger.info(
+        "LLM batch-match: {} вакансий, model={}, url={}",
+        len(vacancies),
+        model,
+        url,
+    )
+    logger.debug(
+        "LLM titles: {}",
+        [(v.hh_id, v.title) for v in vacancies],
+    )
+
+    body = {
+        "model": model,
+        "temperature": 0,
+        "response_format": {"type": "json_object"},
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_content},
+        ],
+    }
+
+    with httpx.Client(timeout=120.0) as client:
+        resp = client.post(
+            url,
+            headers={
+                "Authorization": f"Bearer {key}",
+                "Content-Type": "application/json",
+            },
+            json=body,
+        )
+        logger.debug("LLM HTTP status={}", resp.status_code)
+        resp.raise_for_status()
+        data = resp.json()
+
+    content = data["choices"][0]["message"]["content"]
+    logger.debug("LLM raw content (trunc): {}", content[:2000])
+    parsed = _parse_json_content(content)
+    results = parsed.get("results") or parsed.get("vacancies") or []
+    if not isinstance(results, list):
+        raise ValueError(f"Неожиданный JSON от LLM: {parsed!r}")
+
+    out: dict[str, MatchDecision] = {}
+    for item in results:
+        hh_id = str(item.get("hh_id", "")).strip()
+        if not hh_id:
+            continue
+        suitable = bool(item.get("suitable"))
+        try:
+            score = float(item.get("score", 1.0 if suitable else 0.0))
+        except (TypeError, ValueError):
+            score = 1.0 if suitable else 0.0
+        reason = str(item.get("reason") or ("suitable" if suitable else "rejected"))
+        out[hh_id] = MatchDecision(accepted=suitable, score=score, reason=reason)
+        logger.info(
+            "LLM decision {} {!r}: suitable={} score={} reason={}",
+            hh_id,
+            next((v.title for v in vacancies if v.hh_id == hh_id), ""),
+            suitable,
+            score,
+            reason,
+        )
+
+    missing = [v.hh_id for v in vacancies if v.hh_id not in out]
+    if missing:
+        logger.warning("LLM не вернул решения для {} id — помечаем reject", missing)
+        for hh_id in missing:
+            out[hh_id] = MatchDecision(
+                accepted=False,
+                score=0.0,
+                reason="LLM не вернул решение по этой вакансии",
+            )
+
+    logger.info(
+        "LLM итог: suitable={} reject={}",
+        sum(1 for d in out.values() if d.accepted),
+        sum(1 for d in out.values() if not d.accepted),
+    )
+    return out
+
+
+def _parse_json_content(content: str) -> dict:
+    content = content.strip()
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        m = re.search(r"\{.*\}", content, re.S)
+        if not m:
+            raise
+        return json.loads(m.group(0))

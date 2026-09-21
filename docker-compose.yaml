@@ -1,0 +1,36 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: hh_autoapply_pg
+    environment:
+      POSTGRES_DB: hh_autoapply
+      POSTGRES_USER: hh_autoapply
+      POSTGRES_PASSWORD: hh_autoapply
+    ports:
+      - "5433:5432"
+    volumes:
+      - ./postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hh_autoapply -d hh_autoapply"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  django_admin:
+    build: .
+    container_name: hh_autoapply_admin
+    env_file: .env
+    environment:
+      PG_HOST: postgres
+      PG_PORT: "5432"
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+             python manage.py collectstatic --noinput &&
+             python -m gunicorn --bind :8000 --workers 2
+             --capture-output --log-level warning
+             settings_admin.wsgi:application"
+    ports:
+      - "8005:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy

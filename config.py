@@ -1,0 +1,110 @@
+"""Настройки Selenium-автооткликов на hh.ru."""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+ROOT = Path(__file__).resolve().parent  # hh_autoapply/
+JOB_SEARCH_ROOT = ROOT.parent  # job_search/ — только для context/
+ENV_PATH = ROOT / ".env"
+CONTEXT_DIR = JOB_SEARCH_ROOT / "context"
+
+# Профиль Chrome: cookies/сессия между запусками (не в git)
+PROFILE_DIR = ROOT / ".chrome_profile"
+
+# HTML-дампы страниц в debug-режиме (не в git)
+DEBUG_PAGES_DIR = ROOT / "debug_pages"
+
+# Резюме для LLM-матчера (локальная копия)
+RESUME_DIR = ROOT / "resume"
+DEFAULT_RESUME_PATH = RESUME_DIR / "resume.txt"
+
+HH_BASE = "https://hh.ru"
+HH_LOGIN_URL = f"{HH_BASE}/account/login"
+
+DEFAULT_TARGET_ROLE = "Python Backend Developer"
+
+DEFAULT_PG = {
+    "name": "hh_autoapply",
+    "user": "hh_autoapply",
+    "password": "hh_autoapply",
+    "host": "127.0.0.1",
+    "port": "5433",
+}
+
+# OpenAI-совместимый API (OpenAI / OpenRouter / локальный proxy)
+DEFAULT_LLM_BASE_URL = "https://api.openai.com/v1"
+DEFAULT_LLM_MODEL = "gpt-4o-mini"
+
+
+def load_env() -> None:
+    load_dotenv(ENV_PATH)
+
+
+def env(name: str, default: str = "") -> str:
+    return (os.getenv(name) or default).strip()
+
+
+def search_url() -> str:
+    return env("HH_SEARCH_URL")
+
+
+def target_role() -> str:
+    return env("HH_TARGET_ROLE", DEFAULT_TARGET_ROLE)
+
+
+def pause_between_actions_sec() -> float:
+    """Пауза после клика/скролла/ввода (HH_PAUSE_SEC, по умолчанию 2.5)."""
+    raw = env("HH_PAUSE_SEC", "2.5")
+    try:
+        return max(0.0, float(raw))
+    except ValueError:
+        return 2.5
+
+
+def pg_conninfo() -> dict[str, str | int]:
+    return {
+        "dbname": env("PG_NAME", DEFAULT_PG["name"]),
+        "user": env("PG_USER", DEFAULT_PG["user"]),
+        "password": env("PG_PASSWORD", DEFAULT_PG["password"]),
+        "host": env("PG_HOST", DEFAULT_PG["host"]),
+        "port": int(env("PG_PORT", DEFAULT_PG["port"])),
+    }
+
+
+def pg_dsn_display() -> str:
+    c = pg_conninfo()
+    return f"postgresql://{c['user']}@{c['host']}:{c['port']}/{c['dbname']}"
+
+
+def resume_path() -> Path:
+    raw = env("HH_RESUME_PATH")
+    if raw:
+        p = Path(raw)
+        return p if p.is_absolute() else ROOT / p
+    return DEFAULT_RESUME_PATH
+
+
+def load_resume_text() -> str:
+    path = resume_path()
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Нет файла резюме: {path}\n"
+            "Положи текст резюме в resume/resume.txt или задай HH_RESUME_PATH."
+        )
+    return path.read_text(encoding="utf-8").strip()
+
+
+def llm_api_key() -> str:
+    return env("OPENAI_API_KEY") or env("LLM_API_KEY")
+
+
+def llm_base_url() -> str:
+    return env("OPENAI_BASE_URL", DEFAULT_LLM_BASE_URL).rstrip("/")
+
+
+def llm_model() -> str:
+    return env("OPENAI_MODEL", DEFAULT_LLM_MODEL)

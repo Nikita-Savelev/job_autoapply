@@ -1,0 +1,38 @@
+# Секреты и локальные настройки
+.env
+.env.local
+*.pem
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# Selenium: профиль браузера (сессия)
+.chrome_profile/
+
+# Postgres volume
+postgres_data/
+
+# Debug: HTML-дампы страниц и логи прогонов
+debug_pages/
+*.log
+
+# Django
+staticfiles/
+media/
+
+# Резюме с персональными данными — только локально
+resume/resume.pdf
+resume/resume.txt
+resume/*.docx
+
+# IDE / ОС
+.idea/
+.vscode/
+.DS_Store
+*.swp
+*~
