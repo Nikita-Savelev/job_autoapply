@@ -67,7 +67,7 @@ SEARCH_URL (фильтры уже в URL)
 
 После клика «Откликнуться»:
 
-1. **Тест** — HH просит заполнить опросник/тест → статус `blocked`, HTML-дамп, автоматизация позже.
+1. **Тест** — опросник работодателя: `hh/response_test.py` собирает вопросы, `matcher/test_answers.py` отвечает (техника — Senior по резюме; зарплата/офис/soft — по `job_search/context/faq.md` и соседним md), затем письмо и submit.
 2. **Письмо** (реализовано) — попап «отклик отправлен» → `vacancy-response-letter-toggle` → textarea `vacancy-response-popup-form-letter-input` → submit `vacancy-response-letter-submit`.
 
 Паузы между действиями: `HH_PAUSE_SEC` (по умолчанию 2.5). Лимит откликов: `--apply-limit 1`.

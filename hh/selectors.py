@@ -113,6 +113,18 @@ RESPONSE_TEST_MARKERS = (
     "form[action*='vacancy_response'][action*='test']",
 )
 
+# Опросник работодателя при отклике
+TEST_ASKING = "[data-qa='employer-asking-for-test']"
+TEST_DESCRIPTION = "[data-qa='test-description']"
+TEST_TASK_BODY = "[data-qa='task-body']"
+TEST_QUESTION = "[data-qa='task-question']"
+TEST_OPTION_CELL = "label[data-qa='cell']"
+TEST_OPTION_TEXT = "[data-qa='cell-text-content'], [data-qa='cell-text']"
+TEST_RADIO = "[data-qa='radio']"
+TEST_CHECKBOX = "[data-qa='checkbox']"
+TEST_TEXTAREA = "textarea"
+TEST_CUSTOM_OPTION_TEXTS = ("свой вариант", "свой ответ", "другое")
+
 # Отклик уже просмотрен → письмо только через Chatik
 LETTER_VIEWED_WARNING_TEXT = "Отклик уже просмотрен работодателем"
 # Чат рядом с «Приложить сопроводительное» в блоке «Резюме доставлено»

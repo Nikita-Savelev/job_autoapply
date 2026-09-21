@@ -125,6 +125,10 @@ def _exists(driver: WebDriver, css: str) -> bool:
 
 
 def _looks_like_test(driver: WebDriver) -> bool:
+    from hh.response_test import looks_like_response_test
+
+    if looks_like_response_test(driver):
+        return True
     url = (driver.current_url or "").lower()
     if "question" in url or "/test" in url or "quiz" in url:
         return True
@@ -140,6 +144,7 @@ def _looks_like_test(driver: WebDriver) -> bool:
         "ответьте на вопросы",
         "тестовое задание для отклика",
         "чтобы откликнуться, ответьте",
+        "для отклика необходимо ответить",
     )
     return any(m in body for m in markers)
 
@@ -274,14 +279,17 @@ def apply_with_letter(
     *,
     pause_sec: float = 2.0,
     dumper=None,
+    resume_text: str = "",
+    vacancy_title: str = "",
+    company: str = "",
 ) -> ApplyResult:
     """Отклик со страницы вакансии (вкладка вакансии уже открыта).
 
-    Сценарии письма:
-    - обязательное: форма с textarea открывается сразу после «Откликнуться»,
-      кнопка «Откликнуться» в модалке сначала disabled → вводим текст → жмём;
-    - опциональное: после доставки резюме → «Приложить…» → «Отправить»;
-    - просмотрен работодателем → фолбэк через Chatik.
+    Сценарии:
+    - опросник работодателя → ответы (LLM) + письмо → «Откликнуться»;
+    - обязательное письмо в модалке;
+    - опциональное после доставки резюме;
+    - просмотрен работодателем → Chatik.
     """
     state = detect_response_button_state(driver)
     if state.already_responded:
@@ -314,19 +322,29 @@ def apply_with_letter(
     _confirm_foreign_country_popup(driver, pause_sec=pause_sec, dumper=dumper)
 
     if _looks_like_test(driver):
-        logger.warning("Сценарий с тестом — stub. url={}", driver.current_url)
-        if dumper is not None:
-            try:
-                dumper.save(driver, label="response_test_required")
-            except Exception:  # noqa: BLE001
-                pass
-        raise ResponseTestRequired(
-            "Для отклика нужен тест/опросник — автоматизация пока не реализована"
+        return _complete_employer_test(
+            driver,
+            letter=letter,
+            resume_text=resume_text,
+            vacancy_title=vacancy_title,
+            company=company,
+            pause_sec=pause_sec,
+            dumper=dumper,
         )
 
     if not _wait_letter_flow_available(driver, timeout=15.0, pause_sec=pause_sec):
         # ещё раз на случай, если попап появился с задержкой
         if _confirm_foreign_country_popup(driver, pause_sec=pause_sec, dumper=dumper):
+            if _looks_like_test(driver):
+                return _complete_employer_test(
+                    driver,
+                    letter=letter,
+                    resume_text=resume_text,
+                    vacancy_title=vacancy_title,
+                    company=company,
+                    pause_sec=pause_sec,
+                    dumper=dumper,
+                )
             if _wait_letter_flow_available(driver, timeout=10.0, pause_sec=pause_sec):
                 return _attach_and_send_letter(
                     driver, letter, pause_sec=pause_sec, dumper=dumper
@@ -343,6 +361,59 @@ def apply_with_letter(
         )
 
     return _attach_and_send_letter(driver, letter, pause_sec=pause_sec, dumper=dumper)
+
+
+def _complete_employer_test(
+    driver: WebDriver,
+    *,
+    letter: str,
+    resume_text: str,
+    vacancy_title: str,
+    company: str,
+    pause_sec: float,
+    dumper=None,
+) -> ApplyResult:
+    """Пройти опросник работодателя и отправить отклик с письмом."""
+    from hh.response_test import complete_response_test
+
+    if not (resume_text or "").strip():
+        if dumper is not None:
+            try:
+                dumper.save(driver, label="response_test_no_resume")
+            except Exception:  # noqa: BLE001
+                pass
+        raise ResponseTestRequired(
+            "Нужен опросник, но resume_text пустой — нечем отвечать"
+        )
+
+    logger.info("Сценарий с тестом/опросником — отвечаю автоматически")
+    show_banner(driver, "Опросник работодателя")
+    if dumper is not None:
+        try:
+            dumper.save(driver, label="response_test_start")
+        except Exception:  # noqa: BLE001
+            pass
+
+    try:
+        complete_response_test(
+            driver,
+            letter=letter,
+            resume_text=resume_text,
+            vacancy_title=vacancy_title,
+            company=company,
+            pause_sec=pause_sec,
+            dumper=dumper,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Не удалось пройти опросник: {}", exc)
+        if dumper is not None:
+            try:
+                dumper.save(driver, label="response_test_failed")
+            except Exception:  # noqa: BLE001
+                pass
+        raise ResponseTestRequired(f"Опросник не пройден: {exc}") from exc
+
+    return ApplyResult(outcome=ApplyOutcome.LETTER_SENT, detail="with_test")
 
 
 def _find_response_button(driver: WebDriver) -> WebElement:

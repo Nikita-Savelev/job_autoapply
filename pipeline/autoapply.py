@@ -372,6 +372,9 @@ class AutoApplyPipeline:
                     letter,
                     pause_sec=self.pause,
                     dumper=self.dumper,
+                    resume_text=self._resume_text,
+                    vacancy_title=page.title or vac.title,
+                    company=company_name or "",
                 )
 
                 mark_kw = dict(
@@ -387,8 +390,13 @@ class AutoApplyPipeline:
                         **mark_kw,
                     )
                     stats.applied += 1
-                    stats.notes.append(f"applied+letter {hh_id}: {vac.title}")
-                    logger.info("APPLY ok (letter) {}", hh_id)
+                    tag = (
+                        "applied+test"
+                        if result.detail == "with_test"
+                        else "applied+letter"
+                    )
+                    stats.notes.append(f"{tag} {hh_id}: {vac.title}")
+                    logger.info("APPLY ok ({}) {}", result.detail or "letter", hh_id)
                 elif result.outcome == ApplyOutcome.APPLIED_NO_LETTER:
                     self.store.mark(
                         hh_id,
