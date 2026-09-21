@@ -30,6 +30,9 @@ resume/resume.pdf
 resume/resume.txt
 resume/*.docx
 
+# Временные HTML-дампы опросников (только локальная отладка)
+tests_example/
+
 # IDE / ОС
 .idea/
 .vscode/

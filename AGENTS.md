@@ -19,7 +19,6 @@ Selenium-автоотклики на вакансии: сбор с поиска 
 | [PLAN.md](PLAN.md) | Архитектура, статусы, этапы |
 | [cover_letter/](cover_letter/) | Структура и тон сопроводительных |
 | [.env.example](.env.example) | Переменные окружения |
-| [tests_example/](tests_example/) | HTML-примеры экранов с тестом при отклике |
 
 ## Как работать с агентом
 
@@ -43,10 +42,9 @@ python manage.py runserver 8005
 
 | Путь | Назначение |
 |------|------------|
-| `hh/` | Selenium: поиск, вакансия, отклик, селекторы |
+| `hh/` | Selenium: поиск, вакансия, отклик, опросник, селекторы |
 | `pipeline/` | scrape → match → apply |
-| `matcher/` | LLM batch suitable/reject |
+| `matcher/` | LLM batch suitable/reject + ответы на опросник |
 | `cover_letter/` | Генерация писем |
 | `db/` | Postgres store |
 | `core/` | Django models / admin |
-| `tests_example/` | Эталоны UI тестов (для будущей автоматизации) |
