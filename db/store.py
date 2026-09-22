@@ -54,6 +54,7 @@ class VacancyStore:
                     match_score    DOUBLE PRECISION,
                     skip_reason    TEXT,
                     cover_letter   TEXT,
+                    test_qa        TEXT,
                     error_message  TEXT,
                     raw_json       TEXT,
                     created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -63,6 +64,9 @@ class VacancyStore:
             )
             cur.execute(
                 "ALTER TABLE vacancies ADD COLUMN IF NOT EXISTS company_hh_id TEXT"
+            )
+            cur.execute(
+                "ALTER TABLE vacancies ADD COLUMN IF NOT EXISTS test_qa TEXT"
             )
             cur.execute(
                 "CREATE INDEX IF NOT EXISTS idx_vacancies_status ON vacancies(status)"
@@ -131,6 +135,7 @@ class VacancyStore:
         *,
         skip_reason: str | None = None,
         cover_letter: str | None = None,
+        test_qa: str | None = None,
         description: str | None = None,
         match_score: float | None = None,
         error_message: str | None = None,
@@ -146,6 +151,8 @@ class VacancyStore:
             vac.skip_reason = skip_reason
         if cover_letter is not None:
             vac.cover_letter = cover_letter
+        if test_qa is not None:
+            vac.test_qa = test_qa
         if description is not None:
             vac.description = description
         if match_score is not None:
@@ -254,9 +261,9 @@ class VacancyStore:
                 INSERT INTO vacancies (
                     hh_id, title, url, status, company, company_hh_id, salary,
                     snippet, description, match_score, skip_reason, cover_letter,
-                    error_message, raw_json, created_at, updated_at
+                    test_qa, error_message, raw_json, created_at, updated_at
                 ) VALUES (
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                 )
                 """,
                 (
@@ -272,6 +279,7 @@ class VacancyStore:
                     v.match_score,
                     v.skip_reason,
                     v.cover_letter,
+                    v.test_qa,
                     v.error_message,
                     v.raw_json,
                     v.created_at,
@@ -288,8 +296,8 @@ class VacancyStore:
                     title = %s, url = %s, status = %s, company = %s,
                     company_hh_id = %s, salary = %s, snippet = %s,
                     description = %s, match_score = %s, skip_reason = %s,
-                    cover_letter = %s, error_message = %s, raw_json = %s,
-                    updated_at = %s
+                    cover_letter = %s, test_qa = %s, error_message = %s,
+                    raw_json = %s, updated_at = %s
                 WHERE hh_id = %s
                 """,
                 (
@@ -304,6 +312,7 @@ class VacancyStore:
                     v.match_score,
                     v.skip_reason,
                     v.cover_letter,
+                    v.test_qa,
                     v.error_message,
                     v.raw_json,
                     v.updated_at,
@@ -333,6 +342,7 @@ class VacancyStore:
             match_score=row["match_score"],
             skip_reason=row["skip_reason"],
             cover_letter=row["cover_letter"],
+            test_qa=row.get("test_qa"),
             error_message=row["error_message"],
             raw_json=row["raw_json"],
             created_at=created,

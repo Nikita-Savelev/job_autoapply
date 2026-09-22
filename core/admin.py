@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import json
+
 from django.contrib import admin
 from django.db import models
 from django.forms.widgets import Textarea
-from django.utils.html import format_html
+from django.utils.html import escape, format_html
+from django.utils.safestring import mark_safe
 
 from core.models import (
     AppliedVacancy,
@@ -16,6 +19,55 @@ from core.models import (
 )
 
 
+def _format_test_qa_html(raw: str | None) -> str:
+    """Человекочитаемый HTML блок вопрос → ответ."""
+    if not raw or not str(raw).strip():
+        return "—"
+    try:
+        items = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return format_html(
+            '<pre style="white-space:pre-wrap;max-width:900px">{}</pre>',
+            raw,
+        )
+    if not isinstance(items, list) or not items:
+        return "—"
+
+    blocks: list[str] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        idx = int(item.get("index", 0)) + 1
+        kind = escape(str(item.get("kind") or ""))
+        question = escape(str(item.get("question") or "").strip())
+        selected = item.get("selected") or []
+        if isinstance(selected, str):
+            selected = [selected]
+        text = str(item.get("text") or "").strip()
+        use_custom = bool(item.get("use_custom"))
+
+        answer_parts: list[str] = []
+        if selected:
+            for s in selected:
+                answer_parts.append(f"• {escape(str(s))}")
+        if text:
+            prefix = "Свой вариант: " if use_custom else ""
+            answer_parts.append(escape(prefix + text))
+        answer_html = (
+            "<br>".join(answer_parts) if answer_parts else "<em>нет ответа</em>"
+        )
+        blocks.append(
+            f"<div style='margin:0 0 1.2em 0;padding:0.8em 1em;"
+            f"border:1px solid #ddd;border-radius:6px;max-width:900px'>"
+            f"<div style='color:#666;font-size:12px;margin-bottom:4px'>"
+            f"Вопрос {idx} · {kind}</div>"
+            f"<div style='font-weight:600;margin-bottom:8px'>{question}</div>"
+            f"<div style='white-space:pre-wrap'>{answer_html}</div>"
+            f"</div>"
+        )
+    return mark_safe("".join(blocks)) if blocks else "—"
+
+
 class VacancyAdminBase(admin.ModelAdmin):
     list_display = (
         "hh_id",
@@ -23,6 +75,7 @@ class VacancyAdminBase(admin.ModelAdmin):
         "company",
         "status",
         "match_score",
+        "has_test_qa",
         "hh_link",
         "updated_at",
     )
@@ -41,6 +94,7 @@ class VacancyAdminBase(admin.ModelAdmin):
         "updated_at",
         "hh_link_detail",
         "company_link_detail",
+        "test_qa_display",
     )
     ordering = ("-updated_at",)
     formfield_overrides = {
@@ -78,6 +132,12 @@ class VacancyAdminBase(admin.ModelAdmin):
             },
         ),
         (
+            "Опросник работодателя",
+            {
+                "fields": ("test_qa_display", "test_qa"),
+            },
+        ),
+        (
             "Служебное",
             {
                 "classes": ("collapse",),
@@ -93,6 +153,14 @@ class VacancyAdminBase(admin.ModelAdmin):
     def title_short(self, obj: Vacancy) -> str:
         title = obj.title or ""
         return title if len(title) <= 70 else title[:67] + "…"
+
+    @admin.display(description="Тест", boolean=True)
+    def has_test_qa(self, obj: Vacancy) -> bool:
+        return bool(obj.test_qa and str(obj.test_qa).strip())
+
+    @admin.display(description="Вопросы и ответы")
+    def test_qa_display(self, obj: Vacancy) -> str:
+        return _format_test_qa_html(obj.test_qa)
 
     @admin.display(description="Ссылка")
     def hh_link(self, obj: Vacancy) -> str:
@@ -189,8 +257,9 @@ class AppliedVacancyAdmin(VacancyAdminBase):
         "title_short",
         "company",
         "match_score",
-        "hh_link",
         "has_letter",
+        "has_test_qa",
+        "hh_link",
         "updated_at",
     )
     list_filter = ()
@@ -220,6 +289,12 @@ class AppliedVacancyAdmin(VacancyAdminBase):
                     "description",
                     "snippet",
                 )
+            },
+        ),
+        (
+            "Опросник работодателя",
+            {
+                "fields": ("test_qa_display", "test_qa"),
             },
         ),
         (
@@ -278,6 +353,12 @@ class SkippedVacancyAdmin(VacancyAdminBase):
             {"fields": ("skip_reason", "snippet", "description")},
         ),
         (
+            "Опросник работодателя",
+            {
+                "fields": ("test_qa_display", "test_qa"),
+            },
+        ),
+        (
             "Служебное",
             {
                 "classes": ("collapse",),
@@ -307,10 +388,53 @@ class ProblemVacancyAdmin(VacancyAdminBase):
         "company",
         "status",
         "error_short",
+        "has_test_qa",
         "hh_link",
         "updated_at",
     )
     list_filter = ("status",)
+    fieldsets = (
+        (
+            "Вакансия",
+            {
+                "fields": (
+                    "hh_id",
+                    "title",
+                    "company",
+                    "company_hh_id",
+                    "company_link_detail",
+                    "salary",
+                    "status",
+                    "match_score",
+                    "hh_link_detail",
+                    "url",
+                )
+            },
+        ),
+        (
+            "Проблема",
+            {"fields": ("error_message", "skip_reason", "cover_letter")},
+        ),
+        (
+            "Опросник работодателя",
+            {
+                "fields": ("test_qa_display", "test_qa"),
+            },
+        ),
+        (
+            "Служебное",
+            {
+                "classes": ("collapse",),
+                "fields": (
+                    "snippet",
+                    "description",
+                    "raw_json",
+                    "created_at",
+                    "updated_at",
+                ),
+            },
+        ),
+    )
 
     def get_queryset(self, request):
         return (

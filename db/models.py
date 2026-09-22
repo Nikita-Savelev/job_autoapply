@@ -62,6 +62,7 @@ class Vacancy:
     match_score: float | None = None
     skip_reason: str | None = None
     cover_letter: str | None = None
+    test_qa: str | None = None  # JSON: вопросы/ответы опросника
     error_message: str | None = None
     raw_json: str | None = None  # запасной дамп карточки
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))

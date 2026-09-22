@@ -16,6 +16,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
 from hh import selectors as sel
+from hh.captcha import captcha_visible, resolve_captcha_if_present
 from hh.highlight import clear_highlight, flash_click, show_banner, visual_enabled
 
 
@@ -31,7 +32,7 @@ class ApplyOutcome(StrEnum):
 class ApplyResult:
     outcome: ApplyOutcome
     detail: str = ""
-
+    test_qa: str | None = None  # JSON опросника, если проходили
 
 @dataclass(frozen=True)
 class ResponseButtonState:
@@ -282,6 +283,8 @@ def apply_with_letter(
     resume_text: str = "",
     vacancy_title: str = "",
     company: str = "",
+    vacancy_description: str = "",
+    submit_test: bool = True,
 ) -> ApplyResult:
     """Отклик со страницы вакансии (вкладка вакансии уже открыта).
 
@@ -318,8 +321,14 @@ def apply_with_letter(
         except Exception as exc:  # noqa: BLE001
             logger.debug("dump after_response_click failed: {}", exc)
 
+    # Капча часто всплывает сразу после «Откликнуться»
+    resolve_captcha_if_present(
+        driver, context=f"после Откликнуться ({vacancy_title or ''})"
+    )
+
     # Попап «вакансия в другой стране» — всегда «Все равно откликнуться»
     _confirm_foreign_country_popup(driver, pause_sec=pause_sec, dumper=dumper)
+    resolve_captcha_if_present(driver, context="после foreign-country")
 
     if _looks_like_test(driver):
         return _complete_employer_test(
@@ -328,8 +337,10 @@ def apply_with_letter(
             resume_text=resume_text,
             vacancy_title=vacancy_title,
             company=company,
+            vacancy_description=vacancy_description,
             pause_sec=pause_sec,
             dumper=dumper,
+            submit=submit_test,
         )
 
     if not _wait_letter_flow_available(driver, timeout=15.0, pause_sec=pause_sec):
@@ -342,13 +353,32 @@ def apply_with_letter(
                     resume_text=resume_text,
                     vacancy_title=vacancy_title,
                     company=company,
+                    vacancy_description=vacancy_description,
                     pause_sec=pause_sec,
                     dumper=dumper,
+                    submit=submit_test,
                 )
             if _wait_letter_flow_available(driver, timeout=10.0, pause_sec=pause_sec):
                 return _attach_and_send_letter(
-                    driver, letter, pause_sec=pause_sec, dumper=dumper
+                    driver,
+                    letter,
+                    pause_sec=pause_sec,
+                    dumper=dumper,
+                    submit=submit_test,
                 )
+        # Задержавшаяся капча (раньше выглядело как «Нет UI письма»)
+        if resolve_captcha_if_present(
+            driver, context="нет UI письма — проверка капчи"
+        ) and _wait_letter_flow_available(
+            driver, timeout=15.0, pause_sec=pause_sec
+        ):
+            return _attach_and_send_letter(
+                driver,
+                letter,
+                pause_sec=pause_sec,
+                dumper=dumper,
+                submit=submit_test,
+            )
         logger.warning("Нет UI письма после отклика. url={}", driver.current_url)
         if dumper is not None:
             try:
@@ -360,7 +390,13 @@ def apply_with_letter(
             detail="После «Откликнуться» нет кнопки приложения письма",
         )
 
-    return _attach_and_send_letter(driver, letter, pause_sec=pause_sec, dumper=dumper)
+    return _attach_and_send_letter(
+        driver,
+        letter,
+        pause_sec=pause_sec,
+        dumper=dumper,
+        submit=submit_test,
+    )
 
 
 def _complete_employer_test(
@@ -370,8 +406,10 @@ def _complete_employer_test(
     resume_text: str,
     vacancy_title: str,
     company: str,
+    vacancy_description: str = "",
     pause_sec: float,
     dumper=None,
+    submit: bool = True,
 ) -> ApplyResult:
     """Пройти опросник работодателя и отправить отклик с письмом."""
     from hh.response_test import complete_response_test
@@ -386,7 +424,10 @@ def _complete_employer_test(
             "Нужен опросник, но resume_text пустой — нечем отвечать"
         )
 
-    logger.info("Сценарий с тестом/опросником — отвечаю автоматически")
+    logger.info(
+        "Сценарий с тестом/опросником — отвечаю автоматически (submit={})",
+        submit,
+    )
     show_banner(driver, "Опросник работодателя")
     if dumper is not None:
         try:
@@ -395,14 +436,16 @@ def _complete_employer_test(
             pass
 
     try:
-        complete_response_test(
+        qa_json = complete_response_test(
             driver,
             letter=letter,
             resume_text=resume_text,
             vacancy_title=vacancy_title,
             company=company,
+            vacancy_description=vacancy_description,
             pause_sec=pause_sec,
             dumper=dumper,
+            submit=submit,
         )
     except Exception as exc:  # noqa: BLE001
         logger.exception("Не удалось пройти опросник: {}", exc)
@@ -413,7 +456,12 @@ def _complete_employer_test(
                 pass
         raise ResponseTestRequired(f"Опросник не пройден: {exc}") from exc
 
-    return ApplyResult(outcome=ApplyOutcome.LETTER_SENT, detail="with_test")
+    detail = "with_test" if submit else "with_test_review"
+    return ApplyResult(
+        outcome=ApplyOutcome.LETTER_SENT,
+        detail=detail,
+        test_qa=qa_json,
+    )
 
 
 def _find_response_button(driver: WebDriver) -> WebElement:
@@ -511,6 +559,10 @@ def _wait_letter_flow_available(
 ) -> bool:
     end = time.time() + timeout
     while time.time() < end:
+        if captcha_visible(driver):
+            resolve_captcha_if_present(driver, context="ожидание UI письма")
+            end = time.time() + timeout
+            continue
         if _looks_like_test(driver):
             return False
         # попап мог всплыть с задержкой
@@ -704,6 +756,7 @@ def _attach_and_send_letter(
     *,
     pause_sec: float,
     dumper=None,
+    submit: bool = True,
 ) -> ApplyResult:
     in_modal = _is_response_letter_modal(driver)
     if in_modal:
@@ -825,14 +878,21 @@ def _attach_and_send_letter(
 
     # после ввода снова мог появиться блокер «просмотрен»
     if _letter_viewed_by_employer(driver):
+        if not submit:
+            logger.info("Просмотрен + review — chatik не трогаем")
+            show_banner(driver, "Письмо введено (review, submit нет)")
+            return ApplyResult(outcome=ApplyOutcome.LETTER_SENT, detail="review")
         logger.info("После ввода: отклик просмотрен — отправляю через чат")
         _try_close_popup(driver, pause_sec=min(pause_sec, 1.0))
         return _send_letter_via_chatik(
             driver, letter, pause_sec=pause_sec, dumper=dumper
         )
 
-    submit = _find_submit_button(driver, timeout=10.0, require_enabled=True)
-    if submit is None:
+    submit_btn = _find_submit_button(driver, timeout=10.0, require_enabled=True)
+    if submit_btn is None:
+        if not submit:
+            logger.info("Submit не активен, review — оставляем форму")
+            return ApplyResult(outcome=ApplyOutcome.LETTER_SENT, detail="review")
         if not in_modal and _exists(driver, sel.RESPONSE_SUCCESS_OPEN_CHAT):
             logger.info("Submit не активировался — фолбэк через Chatik")
             _try_close_popup(driver, pause_sec=min(pause_sec, 1.0))
@@ -856,10 +916,18 @@ def _attach_and_send_letter(
         )
     logger.debug("textarea value len перед submit={}", len(value))
 
-    submit_label = (submit.text or "").strip().split("\n")[0][:40] or "Отправить"
+    if not submit:
+        logger.info("Письмо заполнено, submit пропущен (review)")
+        show_banner(driver, "Письмо введено — проверь вручную (submit не жали)")
+        return ApplyResult(
+            outcome=ApplyOutcome.LETTER_SENT,
+            detail="review",
+        )
+
+    submit_label = (submit_btn.text or "").strip().split("\n")[0][:40] or "Отправить"
     _click(
         driver,
-        submit,
+        submit_btn,
         pause_sec=pause_sec,
         label=f"{submit_label} (письмо)",
     )

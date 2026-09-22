@@ -21,6 +21,7 @@ from hh.actions import (
     ResponseTestRequired,
     detect_response_button_state,
 )
+from hh.captcha import CaptchaTimeout, resolve_captcha_if_present
 from hh.company import get_or_fetch_company
 from hh.search import go_next_search_page, open_search, scrape_search_page
 from hh.vacancy import scrape_vacancy_page, vacancy_tab
@@ -45,8 +46,12 @@ class AutoApplyPipeline:
 
     dry_run=True — только матчинг без кликов (флаг --dry-run).
     По умолчанию и в --debug — реальные отклики.
-    max_applies — сколько откликов за прогон (по умолчанию 1).
+    max_applies — единственный жёсткий лимит (сколько откликов за прогон).
+    Страницы и матчинг — без лимита (до конца выдачи / пока есть NEW).
     """
+
+    # Размер куска для LLM (не лимит обработки — все NEW всё равно проходят)
+    _LLM_CHUNK = 50
 
     def __init__(
         self,
@@ -56,9 +61,9 @@ class AutoApplyPipeline:
         search_url: str,
         dry_run: bool = True,
         debug: bool = False,
-        limit: int | None = 1,
+        limit: int | None = None,
         max_applies: int = 1,
-        max_pages: int = 40,
+        max_pages: int | None = None,
         pause_sec: float | None = None,
         dumper: PageDumper | None = None,
     ) -> None:
@@ -67,9 +72,11 @@ class AutoApplyPipeline:
         self.search_url = search_url
         self.dry_run = dry_run
         self.debug = debug
+        # None = без лимита (все NEW → LLM)
         self.limit = limit
         self.max_applies = max_applies
-        self.max_pages = max(1, max_pages)
+        # None = листать до конца выдачи
+        self.max_pages = max_pages
         self.pause = (
             max(0.0, float(pause_sec))
             if pause_sec is not None
@@ -88,14 +95,15 @@ class AutoApplyPipeline:
             stats.notes.append(f"debug HTML → {self.dumper.run_dir}")
             logger.info("Debug HTML dir: {}", self.dumper.run_dir)
 
+        pages_label = str(self.max_pages) if self.max_pages else "∞"
         logger.info(
-            "Старт dry_run={} debug={} limit={} max_applies={} "
+            "Старт dry_run={} debug={} match_limit={} max_applies={} "
             "max_pages={} pause={}s role={!r}",
             self.dry_run,
             self.debug,
-            self.limit,
+            self.limit if self.limit is not None else "∞",
             self.max_applies,
-            self.max_pages,
+            pages_label,
             self.pause,
             self.role,
         )
@@ -107,12 +115,22 @@ class AutoApplyPipeline:
         logger.info("Резюме загружено: {} символов", len(resume_text))
         self._resume_text = resume_text
 
-        for page_no in range(1, self.max_pages + 1):
+        page_no = 0
+        while True:
+            page_no += 1
             if stats.applied >= self.max_applies:
+                break
+            if self.max_pages is not None and page_no > self.max_pages:
+                stats.notes.append(f"stop: max_pages={self.max_pages}")
+                logger.info("Достигнут max_pages={} — стоп", self.max_pages)
                 break
 
             stats.pages = page_no
-            logger.info("=== Страница поиска {}/{} ===", page_no, self.max_pages)
+            logger.info(
+                "=== Страница поиска {}/{} ===",
+                page_no,
+                pages_label,
+            )
 
             cards = scrape_search_page(self.driver, dumper=self.dumper)
             stats.scraped += len(cards)
@@ -141,7 +159,6 @@ class AutoApplyPipeline:
                 stats.notes.append(f"stop: max_applies={self.max_applies}")
                 break
 
-            # Нет новых на странице (или нужны ещё отклики) — следующая страница
             if page_new == 0:
                 logger.info(
                     "На странице {} нет NEW вакансий — листаем дальше",
@@ -156,10 +173,6 @@ class AutoApplyPipeline:
                     stats.applied,
                     self.max_applies,
                 )
-
-            if page_no >= self.max_pages:
-                stats.notes.append(f"stop: max_pages={self.max_pages}")
-                break
 
             if not go_next_search_page(
                 self.driver, dumper=self.dumper, pause_sec=self.pause
@@ -225,30 +238,35 @@ class AutoApplyPipeline:
         logger.info(
             "К LLM-матчингу: {} вакансий (status=new, без score)", len(to_match)
         )
-        decisions = match_vacancies_batch(
-            to_match, self._resume_text, role=self.role
-        )
 
-        for vac in to_match:
+        # Куски только для размера запроса к API — все to_match обрабатываются
+        for i in range(0, len(to_match), self._LLM_CHUNK):
             if stats.applied >= self.max_applies:
                 return
-
-            decision = decisions[vac.hh_id]
-            self.store.mark(
-                vac.hh_id, VacancyStatus.NEW, match_score=decision.score
+            chunk = to_match[i : i + self._LLM_CHUNK]
+            decisions = match_vacancies_batch(
+                chunk, self._resume_text, role=self.role
             )
-            logger.debug(
-                "После матча {} suitable={} reason={}",
-                vac.hh_id,
-                decision.accepted,
-                decision.reason,
-            )
+            for vac in chunk:
+                if stats.applied >= self.max_applies:
+                    return
 
-            if not decision.accepted:
-                self._skip(vac.hh_id, decision.reason, stats)
-                continue
+                decision = decisions[vac.hh_id]
+                self.store.mark(
+                    vac.hh_id, VacancyStatus.NEW, match_score=decision.score
+                )
+                logger.debug(
+                    "После матча {} suitable={} reason={}",
+                    vac.hh_id,
+                    decision.accepted,
+                    decision.reason,
+                )
 
-            self._apply(vac.hh_id, stats)
+                if not decision.accepted:
+                    self._skip(vac.hh_id, decision.reason, stats)
+                    continue
+
+                self._apply(vac.hh_id, stats)
 
     def _skip(self, hh_id: str, reason: str, stats: PipelineStats) -> None:
         logger.info("SKIP {} — {}", hh_id, reason)
@@ -308,6 +326,9 @@ class AutoApplyPipeline:
             return
 
         try:
+            resolve_captcha_if_present(
+                self.driver, context=f"перед вакансией {hh_id}"
+            )
             logger.info("APPLY open vacancy tab {} {}", hh_id, vac.url)
             with vacancy_tab(
                 self.driver,
@@ -316,6 +337,9 @@ class AutoApplyPipeline:
                 label=f"vacancy_{hh_id}",
                 pause_sec=self.pause,
             ):
+                resolve_captcha_if_present(
+                    self.driver, context=f"на странице вакансии {hh_id}"
+                )
                 page = scrape_vacancy_page(self.driver, dumper=self.dumper)
                 logger.debug(
                     "vacancy page title={!r} desc_len={}",
@@ -375,6 +399,7 @@ class AutoApplyPipeline:
                     resume_text=self._resume_text,
                     vacancy_title=page.title or vac.title,
                     company=company_name or "",
+                    vacancy_description=page.description or "",
                 )
 
                 mark_kw = dict(
@@ -383,10 +408,14 @@ class AutoApplyPipeline:
                     company_hh_id=company_hh_id,
                     company=company_name,
                 )
+                if result.test_qa:
+                    mark_kw["test_qa"] = result.test_qa
                 if result.outcome == ApplyOutcome.LETTER_SENT:
                     self.store.mark(
                         hh_id,
                         VacancyStatus.APPLIED,
+                        error_message="",
+                        skip_reason="",
                         **mark_kw,
                     )
                     stats.applied += 1
@@ -463,6 +492,17 @@ class AutoApplyPipeline:
             )
             stats.errors += 1
             stats.notes.append(f"letter_submit_fail {hh_id}")
+        except CaptchaTimeout as exc:
+            logger.error("CAPTCHA timeout {}: {}", hh_id, exc)
+            self.store.mark(
+                hh_id,
+                VacancyStatus.BLOCKED,
+                skip_reason="captcha",
+                error_message=str(exc),
+            )
+            stats.blocked += 1
+            stats.notes.append(f"blocked(captcha) {hh_id}")
+            raise
         except Exception as exc:  # noqa: BLE001
             logger.exception("Ошибка apply {}: {}", hh_id, exc)
             if self.dumper is not None:

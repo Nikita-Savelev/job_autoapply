@@ -31,4 +31,26 @@ def create_driver(*, headless: bool = False) -> webdriver.Chrome:
         options.add_argument("--headless=new")
 
     # Selenium Manager подтянет chromedriver сам (Selenium 4.6+)
-    return webdriver.Chrome(options=options)
+    driver = webdriver.Chrome(options=options)
+    try:
+        from hh.highlight import set_visual_driver
+
+        set_visual_driver(driver)
+    except Exception:  # noqa: BLE001
+        pass
+    return driver
+
+
+def quit_driver(driver: webdriver.Chrome | None) -> None:
+    """Закрыть браузер и отвязать баннер логов."""
+    try:
+        from hh.highlight import set_visual_driver
+
+        set_visual_driver(None)
+    except Exception:  # noqa: BLE001
+        pass
+    if driver is not None:
+        try:
+            driver.quit()
+        except Exception:  # noqa: BLE001
+            pass

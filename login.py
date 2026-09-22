@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import sys
 
-from browser import create_driver
+from browser import create_driver, quit_driver
 from config import HH_LOGIN_URL, load_env
 
 
@@ -36,7 +36,7 @@ def main() -> int:
     except KeyboardInterrupt:
         print("\nОстановлено.")
     finally:
-        driver.quit()
+        quit_driver(driver)
     return 0
 
 

@@ -113,6 +113,20 @@ RESPONSE_TEST_MARKERS = (
     "form[action*='vacancy_response'][action*='test']",
 )
 
+# Капча hh.ru (картинка + поле «Текст с картинки») — tests_example/capcha.html
+CAPTCHA_PICTURE = "[data-qa='account-captcha-picture']"
+CAPTCHA_INPUT = "[data-qa='account-captcha-input']"
+CAPTCHA_INPUT_NAME = "input[name='captchaText']"
+CAPTCHA_IMG_SRC = "img[src*='/captcha/picture']"
+CAPTCHA_RENEW = "[data-qa='captcha-renew-text']"
+CAPTCHA_ERROR = "[data-qa='account-captcha-error']"
+CAPTCHA_MARKERS = (
+    CAPTCHA_PICTURE,
+    CAPTCHA_INPUT,
+    CAPTCHA_INPUT_NAME,
+    CAPTCHA_IMG_SRC,
+)
+
 # Опросник работодателя при отклике
 TEST_ASKING = "[data-qa='employer-asking-for-test']"
 TEST_DESCRIPTION = "[data-qa='test-description']"

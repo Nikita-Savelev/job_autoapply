@@ -17,6 +17,7 @@ from matcher.test_answers import (
     TestAnswer,
     TestQuestion,
     answer_test_questions,
+    serialize_test_qa,
 )
 
 
@@ -121,10 +122,18 @@ def complete_response_test(
     resume_text: str,
     vacancy_title: str = "",
     company: str = "",
+    vacancy_description: str = "",
     pause_sec: float = 2.0,
     dumper=None,
-) -> None:
-    """Ответить на все вопросы, прикрепить письмо, нажать «Откликнуться».
+    submit: bool = True,
+) -> str:
+    """Ответить на все вопросы, прикрепить письмо, опционально нажать «Откликнуться».
+
+    Returns:
+        JSON вопросов и ответов (для сохранения в БД).
+
+    Args:
+        submit: если False — только заполняем форму (для ручной проверки), submit не жмём.
 
     Raises:
         Exception: если не удалось собрать/заполнить/отправить.
@@ -145,11 +154,15 @@ def complete_response_test(
         resume_text=resume_text,
         vacancy_title=vacancy_title,
         company=company,
+        vacancy_description=vacancy_description,
     )
     if len(answers) != len(questions):
         raise RuntimeError(
             f"Ответов {len(answers)} != вопросов {len(questions)}"
         )
+
+    qa_json = serialize_test_qa(questions, answers)
+    logger.info("опросник: {} вопросов, qa_json_len={}", len(questions), len(qa_json))
 
     bodies = [
         el
@@ -172,6 +185,14 @@ def complete_response_test(
         except Exception:  # noqa: BLE001
             pass
 
+    if not submit:
+        logger.info(
+            "опросник заполнен ({} вопросов), submit пропущен (review)",
+            len(questions),
+        )
+        show_banner(driver, "Форма заполнена — проверь вручную (submit не жали)")
+        return qa_json
+
     _submit_test_form(driver, pause_sec=pause_sec)
 
     if dumper is not None:
@@ -182,6 +203,7 @@ def complete_response_test(
 
     logger.info("опросник отправлен ({} вопросов)", len(questions))
     show_banner(driver, "Опросник отправлен")
+    return qa_json
 
 
 def _fill_question(
@@ -230,12 +252,61 @@ def _fill_question(
             raise RuntimeError(
                 f"Q[{question.index}]: опция не найдена: {want!r}"
             )
+        if kind == QuestionKind.MULTI and _option_is_checked(cell):
+            logger.info(
+                "Q[{}]: чекбокс {!r} уже выбран — клик пропускаю",
+                question.index,
+                want[:40],
+            )
+            continue
+        # radio: повторный клик обычно безвреден, но тоже пропускаем если уже выбран
+        if kind == QuestionKind.SINGLE and _option_is_checked(cell):
+            logger.info(
+                "Q[{}]: radio {!r} уже выбран — клик пропускаю",
+                question.index,
+                want[:40],
+            )
+            continue
         _click_el(
             driver,
             cell,
             pause_sec=pause_sec,
             label=f"опция: {want[:40]}",
         )
+
+
+def _option_is_checked(cell: WebElement) -> bool:
+    """Уже выбран ли radio/checkbox внутри label[data-qa=cell]."""
+    try:
+        for inp in cell.find_elements(By.CSS_SELECTOR, "input[type='checkbox'], input[type='radio']"):
+            try:
+                if inp.is_selected():
+                    return True
+            except Exception:
+                pass
+            checked = (inp.get_attribute("checked") or "").lower()
+            if checked in ("true", "checked", "1"):
+                return True
+            cls = (inp.get_attribute("class") or "").lower()
+            if "checked" in cls and "unchecked" not in cls:
+                return True
+            aria = (inp.get_attribute("aria-checked") or "").lower()
+            if aria == "true":
+                return True
+        # Magritte: активная ячейка / иконка
+        cell_cls = (cell.get_attribute("class") or "").lower()
+        if "magritte-checked" in cell_cls:
+            return True
+        for box in cell.find_elements(
+            By.CSS_SELECTOR,
+            "[data-qa='checkbox'], [data-qa='radio']",
+        ):
+            bcls = (box.get_attribute("class") or "").lower()
+            if "checked" in bcls and "unchecked" not in bcls:
+                return True
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("не удалось проверить checked: {}", exc)
+    return False
 
 
 def _attach_letter_in_test(

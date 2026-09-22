@@ -16,17 +16,59 @@ python login.py
 
 ### Отладка отклика (реальные клики + HTML/логи)
 
-По умолчанию бот **откликается**. `--debug` только усиливает логи и дампы страниц.
+По умолчанию бот **откликается**. Единственный лимит — `--apply-limit`
+(страницы и матчинг без ограничений). `--debug` усиливает логи и дампы.
 
 ```bash
-python run.py --debug --limit 15 --apply-limit 1
+python run.py --debug --apply-limit 1
 ```
 
 ### Только матчинг, без кликов
 
 ```bash
-python run.py --dry-run --debug --limit 20
+python run.py --dry-run --apply-limit 50
 ```
+
+### Ежедневный широкий поиск (рекомендуемый режим)
+
+Python по всему сайту (без региона), 100 вакансий на странице.
+Уже виденные/откликнутые в БД пропускаются — можно гонять каждый день.
+
+Первый полный прогон (вся история)::
+
+```bash
+python run_daily.py --period 0 --apply-limit 200
+```
+
+Потом ежедневно только свежие (за неделю)::
+
+```bash
+python run_daily.py --period 7 --apply-limit 200
+```
+
+### Очередь нескольких узких поисков (общий лимит откликов)
+
+Все URL из `probe_search_urls.py` по урожайности, каждая выдача до конца:
+
+```bash
+python run_queue.py --apply-limit 200
+```
+
+### Опросник при отклике (live / review)
+
+По умолчанию — **реальный отклик** (ответы LLM + финальная «Откликнуться»):
+
+```bash
+python review_tests.py
+```
+
+Только заполнить форму без submit (ручная проверка):
+
+```bash
+python review_tests.py --review
+```
+
+В обычном `run.py` опросник тоже проходит с submit (как live).
 
 ## Django-админка
 
@@ -67,6 +109,8 @@ docker compose up -d --build
 ## Env
 
 См. `.env.example`. Паузы: `HH_PAUSE_SEC=2.5`. Подсветка: `HH_HIGHLIGHT=1`. Картинки в Chrome отключены.
+
+Капча hh.ru: бот детектит `[data-qa=account-captcha-*]`, шлёт уведомление в Telegram (chat id захардкожен) и **ждёт**, пока ты решишь капчу в Chrome. Токен бота читается из `finance_bot/.env` (`BOT_TOKEN`), в этот проект не копируется.
 
 ## Ограничения
 

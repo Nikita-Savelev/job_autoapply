@@ -58,6 +58,7 @@ class Vacancy(models.Model):
     match_score = models.FloatField("Match score", blank=True, null=True)
     skip_reason = models.TextField("Причина скипа", blank=True, null=True)
     cover_letter = models.TextField("Сопроводительное", blank=True, null=True)
+    test_qa = models.TextField("Опросник (Q&A)", blank=True, null=True)
     error_message = models.TextField("Ошибка", blank=True, null=True)
     raw_json = models.TextField("Raw JSON", blank=True, null=True)
     created_at = models.DateTimeField("Создано")

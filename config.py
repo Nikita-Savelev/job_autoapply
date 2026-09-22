@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from dotenv import load_dotenv
 
@@ -27,6 +28,14 @@ HH_LOGIN_URL = f"{HH_BASE}/account/login"
 
 DEFAULT_TARGET_ROLE = "Python Backend Developer"
 
+# Ежедневный широкий поиск: text=Python, без региона (вся РФ / удалёнка),
+# 100 карточек на странице. period=0 — всё время; для daily позже period=7.
+DEFAULT_DAILY_SEARCH_URL = (
+    "https://hh.ru/search/vacancy?"
+    "items_on_page=100&ored_clusters=true&text=Python&search_period=0"
+    "&hhtmFromLabel=search_order_button&hhtmFrom=vacancy_search_list"
+)
+
 DEFAULT_PG = {
     "name": "hh_autoapply",
     "user": "hh_autoapply",
@@ -49,7 +58,65 @@ def env(name: str, default: str = "") -> str:
 
 
 def search_url() -> str:
-    return env("HH_SEARCH_URL")
+    return env("HH_SEARCH_URL") or DEFAULT_DAILY_SEARCH_URL
+
+
+def build_daily_search_url(
+    *,
+    base: str | None = None,
+    period: int | None = None,
+    items_on_page: int = 100,
+    drop_area: bool = True,
+) -> str:
+    """Собрать URL ежедневного поиска.
+
+    Канон — DEFAULT_DAILY_SEARCH_URL (Python, без региона, 100/стр).
+    ``base`` / HH_SEARCH_URL подставляются только если явно переданы
+    или env уже содержит text= (иначе игнорируем мусорный старый URL).
+
+    - без area (весь сайт), если drop_area=True
+    - items_on_page=100
+    - period: None = как в base; 0 = всё время; 7 = за неделю
+    """
+    if base is not None and base.strip():
+        raw = base.strip()
+    else:
+        from_env = env("HH_SEARCH_URL")
+        # Берём env только если это похоже на поиск по text=
+        if from_env and "text=" in from_env and "/search/vacancy" in from_env:
+            raw = from_env
+        else:
+            raw = DEFAULT_DAILY_SEARCH_URL
+
+    if raw.startswith("//"):
+        raw = "https:" + raw
+    elif not raw.startswith("http"):
+        raw = "https://" + raw.lstrip("/")
+
+    parts = urlparse(raw)
+    flat: dict[str, str] = {}
+    for key, value in parse_qsl(parts.query, keep_blank_values=True):
+        if drop_area and (key == "area" or key.startswith("area[")):
+            continue
+        flat[key] = value
+
+    flat["items_on_page"] = str(items_on_page)
+    flat.setdefault("ored_clusters", "true")
+    flat.setdefault("text", "Python")
+    if period is not None:
+        flat["search_period"] = str(int(period))
+
+    query = urlencode(list(flat.items()))
+    return urlunparse(
+        (
+            parts.scheme or "https",
+            parts.netloc or "hh.ru",
+            parts.path or "/search/vacancy",
+            "",
+            query,
+            "",
+        )
+    )
 
 
 def target_role() -> str:

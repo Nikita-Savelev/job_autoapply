@@ -33,16 +33,22 @@ Selenium-автоотклики на вакансии: сбор с поиска 
 ```bash
 docker compose up -d
 python login.py
-python run.py --limit 50 --apply-limit 10
-python run.py --dry-run --limit 20
+python run_daily.py --period 0 --apply-limit 200   # широкий Python, весь сайт
+python run_daily.py --period 7 --apply-limit 200   # daily: за неделю
+python run.py --apply-limit 50                     # HH_SEARCH_URL из .env
+python run.py --dry-run --apply-limit 100
 python manage.py runserver 8005
 ```
+
+Ежедневный режим: `run_daily.py` — text=Python, без area, 100/стр.
+`--period 0` = вся история; `--period 7` = свежие за неделю.
 
 ## Модули
 
 | Путь | Назначение |
 |------|------------|
-| `hh/` | Selenium: поиск, вакансия, отклик, опросник, селекторы |
+| `hh/` | Selenium: поиск, вакансия, отклик, опросник, капча, селекторы |
+| `notify/` | Telegram-уведомления (токен из `finance_bot/.env`) |
 | `pipeline/` | scrape → match → apply |
 | `matcher/` | LLM batch suitable/reject + ответы на опросник |
 | `cover_letter/` | Генерация писем |
