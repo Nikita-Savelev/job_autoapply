@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from loguru import logger
 from selenium.webdriver.remote.webdriver import WebDriver
 
-from config import load_resume_text, pause_between_actions_sec, target_role
+from config import daily_apply_limit, load_resume_text, pause_between_actions_sec, target_role
 from cover_letter import generate_cover_letter
 from db.models import Vacancy, VacancyStatus
 from db.store import VacancyStore
@@ -46,7 +46,8 @@ class AutoApplyPipeline:
 
     dry_run=True — только матчинг без кликов (флаг --dry-run).
     По умолчанию и в --debug — реальные отклики.
-    max_applies — единственный жёсткий лимит (сколько откликов за прогон).
+    max_applies — лимит за прогон; дополнительно жёсткий дневной потолок
+    HH_DAILY_APPLY_LIMIT (по умолчанию 200) по applied_at в БД.
     Страницы и матчинг — без лимита (до конца выдачи / пока есть NEW).
     """
 
@@ -94,6 +95,36 @@ class AutoApplyPipeline:
             stats.debug_dir = str(self.dumper.run_dir)
             stats.notes.append(f"debug HTML → {self.dumper.run_dir}")
             logger.info("Debug HTML dir: {}", self.dumper.run_dir)
+
+        daily_cap = daily_apply_limit()
+        used_today = self.store.count_applied_today()
+        remaining_today = max(0, daily_cap - used_today)
+        if remaining_today <= 0:
+            msg = f"stop: daily_limit {used_today}/{daily_cap}"
+            stats.notes.append(msg)
+            logger.warning(
+                "Дневной лимит откликов исчерпан: {}/{} — прогон не стартуем",
+                used_today,
+                daily_cap,
+            )
+            return stats
+        if self.max_applies > remaining_today:
+            logger.info(
+                "CLI max_applies={} урезан дневным лимитом до {} "
+                "(уже сегодня {}/{})",
+                self.max_applies,
+                remaining_today,
+                used_today,
+                daily_cap,
+            )
+            self.max_applies = remaining_today
+        else:
+            logger.info(
+                "Дневной лимит: уже {}/{}, на прогон max_applies={}",
+                used_today,
+                daily_cap,
+                self.max_applies,
+            )
 
         pages_label = str(self.max_pages) if self.max_pages else "∞"
         logger.info(
@@ -299,6 +330,18 @@ class AutoApplyPipeline:
         vac = self.store.get(hh_id)
         if vac is None:
             return
+
+        if not self.dry_run:
+            rem = self.store.remaining_daily_applies()
+            if rem <= 0:
+                logger.warning(
+                    "Дневной лимит откликов исчерпан — стоп перед {}",
+                    hh_id,
+                )
+                stats.notes.append("stop: daily_limit mid-run")
+                # чтобы внешние циклы тоже остановились
+                self.max_applies = stats.applied
+                return
 
         if self.dry_run:
             company_info = ""

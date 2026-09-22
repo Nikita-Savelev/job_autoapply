@@ -176,13 +176,20 @@ def main(argv: list[str] | None = None) -> int:
         for i, vac in enumerate(problems, start=1):
             if stop_all:
                 break
+            rem_day = store.remaining_daily_applies()
+            if rem_day <= 0:
+                logger.warning(
+                    "Дневной лимит откликов исчерпан — retry стоп"
+                )
+                break
             hh_id = vac.hh_id
             logger.info(
-                "=== RETRY [{}/{}] {} {}",
+                "=== RETRY [{}/{}] {} {} | daily_left={}",
                 i,
                 len(problems),
                 hh_id,
                 vac.title,
+                rem_day,
             )
             session_retries = 0
             while True:

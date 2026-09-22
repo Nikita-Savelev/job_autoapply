@@ -115,18 +115,29 @@ def main(argv: list[str] | None = None) -> int:
     for i, (name, url) in enumerate(queue, 1):
         logger.info("  [{}] {} → {}", i, name, url[:100])
 
-    if not dry_run:
-        logger.warning(
-            "LIVE: до {} реальных откликов по очереди из {} ссылок.",
-            remaining,
-            len(queue),
-        )
-
     try:
         store = VacancyStore(pg_conninfo())
     except Exception as exc:  # noqa: BLE001
         logger.error("Postgres недоступен: {}", exc)
         return 1
+
+    if not dry_run:
+        rem_day = store.remaining_daily_applies()
+        logger.info(
+            "Дневной лимит: осталось {} (HH_DAILY_APPLY_LIMIT)",
+            rem_day,
+        )
+        remaining = min(remaining, rem_day)
+        if remaining <= 0:
+            logger.warning("Дневной лимит откликов исчерпан — очередь не стартуем")
+            store.close()
+            return 0
+        logger.warning(
+            "LIVE: до {} реальных откликов по очереди из {} ссылок "
+            "(с учётом дневного лимита).",
+            remaining,
+            len(queue),
+        )
 
     driver = create_driver(headless=args.headless)
     total_applied = 0
@@ -139,6 +150,12 @@ def main(argv: list[str] | None = None) -> int:
             if remaining <= 0:
                 logger.info("Лимит откликов исчерпан — очередь стоп")
                 break
+            # пересчитать дневной остаток между ссылками
+            if not dry_run:
+                remaining = min(remaining, store.remaining_daily_applies())
+                if remaining <= 0:
+                    logger.warning("Дневной лимит исчерпан mid-queue — стоп")
+                    break
             logger.info(
                 "=== QUEUE [{}/{}] {} | remaining_applies={} ===",
                 i,

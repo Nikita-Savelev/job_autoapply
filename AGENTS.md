@@ -37,6 +37,8 @@ python run_daily.py --period 0 --apply-limit 200   # широкий Python, ве
 python run_daily.py --period 7 --apply-limit 200   # daily: за неделю
 python run.py --apply-limit 50                     # HH_SEARCH_URL из .env
 python run.py --dry-run --apply-limit 100
+python run_chat.py --loop --debug                  # мониторинг чатов (3 стр.)
+python run_chat.py --once --force --debug          # полный прогон списка (редко)
 python manage.py runserver 8005
 ```
 
@@ -47,7 +49,8 @@ python manage.py runserver 8005
 
 | Путь | Назначение |
 |------|------------|
-| `hh/` | Selenium: поиск, вакансия, отклик, опросник, капча, селекторы |
+| `hh/` | Selenium: поиск, вакансия, отклик, опросник, капча, **чат**, селекторы |
+| `chat/` | Автоответы в переписке HH (chatik): classify / compose / delay — [chat/PLAN.md](chat/PLAN.md) |
 | `notify/` | Telegram-уведомления (токен из `finance_bot/.env`) |
 | `pipeline/` | scrape → match → apply |
 | `matcher/` | LLM batch suitable/reject + ответы на опросник |

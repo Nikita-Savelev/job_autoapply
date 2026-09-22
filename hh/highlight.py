@@ -39,6 +39,8 @@ _BANNER_RULES: tuple[tuple[str, str | None], ...] = (
     (r"(?i)already|уже отклик", "Уже откликались"),
     (r"(?i)blocked|опросник не", "Ошибка опросника"),
     (r"(?i)review tests|проверк", "Проверка теста"),
+    (r"(?i)sweep|список чатов|open chat|composer|исходящ|awaiting_them|typing delay", "Чат"),
+    (r"(?i)escalate|needs_human|bot_paused", "Чат: эскалация"),
     # шум — не показывать в баннере
     (r"(?i)test answer \[|пререквизит|вырезал сум|убрал сум|убрал формулир|Q\[\d+\]", None),
     (r"(?i)TARGET_ROLE|RESUME:|SEARCH_URL|pause=|debug:|DB:|counts in|HTML\+log|Файл лога", None),

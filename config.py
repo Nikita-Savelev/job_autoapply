@@ -175,3 +175,28 @@ def llm_base_url() -> str:
 
 def llm_model() -> str:
     return env("OPENAI_MODEL", DEFAULT_LLM_MODEL)
+
+
+def daily_apply_limit() -> int:
+    """Жёсткий потолок откликов за календарный день (БД), независимо от CLI."""
+    raw = env("HH_DAILY_APPLY_LIMIT", "200") or "200"
+    try:
+        n = int(raw)
+    except ValueError:
+        n = 200
+    return max(0, n)
+
+
+def daily_apply_tz_name() -> str:
+    return env("HH_DAILY_TZ", "Europe/Moscow") or "Europe/Moscow"
+
+
+def day_start_utc() -> datetime:
+    """Начало «сегодня» в HH_DAILY_TZ, в UTC."""
+    from datetime import datetime, timezone
+    from zoneinfo import ZoneInfo
+
+    tz = ZoneInfo(daily_apply_tz_name())
+    local_now = datetime.now(tz)
+    local_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+    return local_start.astimezone(timezone.utc)

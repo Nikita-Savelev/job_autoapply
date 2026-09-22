@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pathlib import Path
-
 from loguru import logger
 from selenium.webdriver.remote.webdriver import WebDriver
 
@@ -18,15 +16,16 @@ def go(
     *,
     dumper: PageDumper | None = None,
     label: str = "",
+    chat_id: str | None = None,
 ) -> Path | None:
     """driver.get + сохранение страницы, если включён debug."""
-    logger.debug("navigate go label={!r} url={}", label, url)
+    logger.debug("navigate go label={!r} url={} chat_id={}", label, url, chat_id)
     driver.get(url)
     if dumper is None:
         return None
-    path = dumper.save(driver, label=label or "navigate", url=url)
-    logger.debug("HTML dump → {}", path)
-    return path
+    return dumper.save(
+        driver, label=label or "navigate", url=url, chat_id=chat_id
+    )
 
 
 def dump_current(
@@ -34,9 +33,8 @@ def dump_current(
     dumper: PageDumper | None,
     *,
     label: str = "current",
+    chat_id: str | None = None,
 ) -> Path | None:
     if dumper is None:
         return None
-    path = dumper.save(driver, label=label)
-    logger.debug("HTML dump (current) → {}", path)
-    return path
+    return dumper.save(driver, label=label, chat_id=chat_id)

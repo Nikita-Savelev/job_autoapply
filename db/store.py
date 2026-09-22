@@ -9,6 +9,7 @@ import psycopg
 from loguru import logger
 from psycopg.rows import dict_row
 
+from config import daily_apply_limit, day_start_utc
 from db.models import Company, Vacancy, VacancyStatus
 
 
@@ -69,11 +70,26 @@ class VacancyStore:
                 "ALTER TABLE vacancies ADD COLUMN IF NOT EXISTS test_qa TEXT"
             )
             cur.execute(
+                "ALTER TABLE vacancies ADD COLUMN IF NOT EXISTS applied_at TIMESTAMPTZ"
+            )
+            # backfill: первый applied ≈ updated_at на момент миграции
+            cur.execute(
+                """
+                UPDATE vacancies
+                SET applied_at = updated_at
+                WHERE status = 'applied' AND applied_at IS NULL
+                """
+            )
+            cur.execute(
                 "CREATE INDEX IF NOT EXISTS idx_vacancies_status ON vacancies(status)"
             )
             cur.execute(
                 "CREATE INDEX IF NOT EXISTS idx_vacancies_company "
                 "ON vacancies(company_hh_id)"
+            )
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_vacancies_applied_at "
+                "ON vacancies(applied_at)"
             )
         self._conn.commit()
 
@@ -147,6 +163,8 @@ class VacancyStore:
             return None
         vac.status = status
         vac.updated_at = _utc_now()
+        if status == VacancyStatus.APPLIED and vac.applied_at is None:
+            vac.applied_at = vac.updated_at
         if skip_reason is not None:
             vac.skip_reason = skip_reason
         if cover_letter is not None:
@@ -165,6 +183,26 @@ class VacancyStore:
             vac.company = company
         self._update(vac)
         return vac
+
+    def count_applied_today(self) -> int:
+        """Сколько откликов с applied_at за текущий календарный день."""
+        start = day_start_utc()
+        with self._conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT COUNT(*)::int AS n FROM vacancies
+                WHERE status = %s AND applied_at IS NOT NULL AND applied_at >= %s
+                """,
+                (VacancyStatus.APPLIED.value, start),
+            )
+            row = cur.fetchone()
+        return int(row["n"]) if row else 0
+
+    def remaining_daily_applies(self, *, limit: int | None = None) -> int:
+        """Сколько ещё можно откликнуться сегодня (жёсткий дневной потолок)."""
+        cap = daily_apply_limit() if limit is None else max(0, int(limit))
+        used = self.count_applied_today()
+        return max(0, cap - used)
 
     def get_company(self, hh_id: str) -> Company | None:
         with self._conn.cursor() as cur:
@@ -261,9 +299,11 @@ class VacancyStore:
                 INSERT INTO vacancies (
                     hh_id, title, url, status, company, company_hh_id, salary,
                     snippet, description, match_score, skip_reason, cover_letter,
-                    test_qa, error_message, raw_json, created_at, updated_at
+                    test_qa, error_message, raw_json, created_at, updated_at,
+                    applied_at
                 ) VALUES (
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s
                 )
                 """,
                 (
@@ -284,6 +324,7 @@ class VacancyStore:
                     v.raw_json,
                     v.created_at,
                     v.updated_at,
+                    v.applied_at,
                 ),
             )
         self._conn.commit()
@@ -297,7 +338,7 @@ class VacancyStore:
                     company_hh_id = %s, salary = %s, snippet = %s,
                     description = %s, match_score = %s, skip_reason = %s,
                     cover_letter = %s, test_qa = %s, error_message = %s,
-                    raw_json = %s, updated_at = %s
+                    raw_json = %s, updated_at = %s, applied_at = %s
                 WHERE hh_id = %s
                 """,
                 (
@@ -316,6 +357,7 @@ class VacancyStore:
                     v.error_message,
                     v.raw_json,
                     v.updated_at,
+                    v.applied_at,
                     v.hh_id,
                 ),
             )
@@ -325,10 +367,13 @@ class VacancyStore:
     def _row_to_vacancy(row: dict[str, Any]) -> Vacancy:
         created = row["created_at"]
         updated = row["updated_at"]
+        applied = row.get("applied_at")
         if created.tzinfo is None:
             created = created.replace(tzinfo=timezone.utc)
         if updated.tzinfo is None:
             updated = updated.replace(tzinfo=timezone.utc)
+        if applied is not None and applied.tzinfo is None:
+            applied = applied.replace(tzinfo=timezone.utc)
         return Vacancy(
             hh_id=row["hh_id"],
             title=row["title"],
@@ -347,6 +392,7 @@ class VacancyStore:
             raw_json=row["raw_json"],
             created_at=created,
             updated_at=updated,
+            applied_at=applied,
         )
 
     @staticmethod

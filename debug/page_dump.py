@@ -31,7 +31,7 @@ class PageDumper:
         self.index_path = self.run_dir / "index.tsv"
         if not self.index_path.exists():
             self.index_path.write_text(
-                "seq\tlabel\turl\thtml_file\n", encoding="utf-8"
+                "seq\tchat_id\tlabel\turl\thtml_file\n", encoding="utf-8"
             )
         logger.debug("PageDumper run_dir={}", self.run_dir)
 
@@ -41,33 +41,55 @@ class PageDumper:
         *,
         label: str = "",
         url: str | None = None,
+        chat_id: str | None = None,
     ) -> Path:
         self._seq += 1
         current_url = url or getattr(driver, "current_url", "") or ""
+        # chat_id из аргумента или из /chat/<id> в URL
+        cid = (chat_id or "").strip() or _chat_id_from_url(current_url)
         path_part = urlparse(current_url).path.strip("/") or "root"
-        name = f"{self._seq:04d}_{_slug(label or path_part)}.html"
+        base_label = label or path_part
+        if cid and cid not in base_label:
+            base_label = f"chat_{cid}_{base_label}"
+        elif cid and not base_label.startswith("chat_"):
+            base_label = f"chat_{cid}_{base_label}"
+        name = f"{self._seq:04d}_{_slug(base_label)}.html"
         html_path = self.run_dir / name
 
         html = driver.page_source or ""
-        html_path.write_text(html, encoding="utf-8")
-        logger.debug(
-            "Сохранён HTML seq={} label={!r} bytes={} → {}",
-            self._seq,
+        stamp = datetime.now(timezone.utc).isoformat()
+        header = (
+            f"<!-- hh_autoapply dump\n"
+            f"     chat_id: {cid or '—'}\n"
+            f"     label: {label}\n"
+            f"     url: {current_url}\n"
+            f"     saved_at: {stamp}\n"
+            f"-->\n"
+        )
+        html_path.write_text(header + html, encoding="utf-8")
+        logger.info(
+            "HTML dump chat_id={} label={!r} → {}",
+            cid or "—",
             label,
-            len(html),
-            html_path.name,
+            html_path,
         )
 
         meta_path = html_path.with_suffix(".meta.txt")
         meta_path.write_text(
+            f"chat_id: {cid or ''}\n"
             f"url: {current_url}\n"
             f"label: {label}\n"
             f"title: {getattr(driver, 'title', '')}\n"
-            f"saved_at: {datetime.now(timezone.utc).isoformat()}\n",
+            f"saved_at: {stamp}\n",
             encoding="utf-8",
         )
 
         with self.index_path.open("a", encoding="utf-8") as fh:
-            fh.write(f"{self._seq}\t{label}\t{current_url}\t{name}\n")
+            fh.write(f"{self._seq}\t{cid or ''}\t{label}\t{current_url}\t{name}\n")
 
         return html_path
+
+
+def _chat_id_from_url(url: str) -> str | None:
+    m = re.search(r"/chat/(\d+)", url or "")
+    return m.group(1) if m else None

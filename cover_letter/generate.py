@@ -37,7 +37,9 @@ SYSTEM_PROMPT = """\
 - в блоке контактов ОБЯЗАТЕЛЬНО укажи Telegram из блока КАНДИДАТ (нельзя опускать);
 - НИКОГДА не указывай зарплату, вилку, ожидаемый или минимальный доход;
 - тон живой Senior Python, на «вы», без AI-клише;
-- без длинных тире, без стрелок, без ёлочек-кавычек.
+- НИКОГДА не используй длинные тире (— / – / −). Только короткий дефис "-"
+  или точка/запятая. Плохо: «роль — Backend». Ок: «роль - Backend».
+- без стрелок, без ёлочек-кавычек.
 
 Ответ: ТОЛЬКО текст письма на русском, без markdown.
 Объём roughly 160-320 слов.
@@ -174,8 +176,19 @@ def _generate_via_llm(
 
 
 def finalize_cover_letter(text: str) -> str:
-    """Постобработка: имя как в аккаунте hh + обязательный Telegram."""
-    return ensure_telegram_in_letter(normalize_candidate_name(text))
+    """Постобработка: тире, имя как в аккаунте hh + обязательный Telegram."""
+    body = _normalize_dashes(text or "")
+    return ensure_telegram_in_letter(normalize_candidate_name(body))
+
+
+def _normalize_dashes(text: str) -> str:
+    """Длинные тире → короткий дефис '-'."""
+    return (
+        (text or "")
+        .replace("—", "-")
+        .replace("–", "-")
+        .replace("−", "-")
+    )
 
 
 def normalize_candidate_name(text: str) -> str:

@@ -161,3 +161,42 @@ CHATIK_SEND_BUTTONS = (
     "button[aria-label='Отправить сообщение']",
 )
 CHATIK_LETTER_PREVIEW = "[data-qa='chat-input-preview']"
+
+# --- Полноэкранный чат https://hh.ru/chat (модуль chat/) ---
+# Ориентир DOM: tests_example/chat.html (список), chat_thread.html (тред).
+CHAT_PAGE_URL = "https://hh.ru/chat"
+CHATIK_LAYOUT = "[data-qa='chatik-layout']"
+CHATIK_ONLY_UNREAD = "[data-qa='chatik-checkbox-only-unread']"
+CHATIK_NO_CHATS = "[data-qa='chatik-no-chats']"
+CHATIK_OPEN_CHAT_PREFIX = "chatik-open-chat-"
+CHATIK_OPEN_CHAT = "[data-qa^='chatik-open-chat-']"
+CHATIK_SELECT_CHAT = "[data-qa^='chatik-select-chat-']"
+CHAT_CELL_TITLE = "[data-qa='chat-cell-title']"
+CHAT_CELL_SUBTITLE = "[data-qa='chat-cell-subtitle']"
+CHAT_CELL_META = "[data-qa='chat-cell-meta']"
+CHAT_CELL_TIME = "[data-qa='chat-cell-creation-time']"
+# превью/статус под вакансией: «Отказ», текст сообщения, «Отклик на вакансию»
+CHAT_CELL_LAST_MESSAGE = "[class*='last-message-color_']"
+
+# Открытый тред
+CHAT_MESSAGES_SCROLLER = "#chatik_messages_scroller"
+# Корень сообщения: data-qa="chatik-chat-message-<id>" (не *-text)
+CHAT_MESSAGE_ROOT_PREFIX = "chatik-chat-message-"
+CHAT_MESSAGE_ROOT = "[data-qa^='chatik-chat-message-']"
+CHAT_BUBBLE_TEXT = "[data-qa='chat-bubble-text']"
+CHAT_BUBBLE_AUTHOR = "[data-qa='chat-bubble-author-name']"
+CHAT_BUBBLE_TIME = "[data-qa='chat-buble-display-time']"  # опечатка hh в DOM
+# Хеш в class меняется — матчим по стабильному куску имени
+CHAT_BUBBLE_OUTGOING = "[class*='chat-bubble_outgoing'], [class*='message_my']"
+CHAT_BUBBLE_INCOMING = "[class*='chat-bubble_incoming']"
+CHAT_UNREAD_PLATE = "[data-qa='unread-messages-plate']"
+CHAT_PARTICIPANT_TITLE = "[data-qa='participant-info-title']"
+CHAT_PARTICIPANT_SUBTITLE = "[data-qa='participant-info-subtitle']"
+CHAT_PARTICIPANT_DETAILS = "[data-qa='participant-info-details']"  # a → /employer/<id>
+CHAT_COMPOSER = "[data-qa='chatik-message-input']"
+CHAT_THREAD_TEXTAREA = (
+    "[data-qa='chatik-message-input'] textarea[data-qa='text-input']"
+)
+CHAT_SCROLL_DOWN = "[data-qa='chatik-chat-scroll-down-button']"
+# кнопка отправки в полноэкранном /chat (те же data-qa, что в iframe chatik)
+CHAT_SEND_BUTTONS = CHATIK_SEND_BUTTONS

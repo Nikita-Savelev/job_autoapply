@@ -12,6 +12,9 @@ from django.utils.safestring import mark_safe
 
 from core.models import (
     AppliedVacancy,
+    ChatAction,
+    ChatMessage,
+    ChatThread,
     Company,
     ProblemVacancy,
     SkippedVacancy,
@@ -261,6 +264,7 @@ class AppliedVacancyAdmin(VacancyAdminBase):
         "has_letter",
         "has_test_qa",
         "hh_link",
+        "applied_at",
         "updated_at",
     )
     list_filter = ()
@@ -302,7 +306,13 @@ class AppliedVacancyAdmin(VacancyAdminBase):
             "Служебное",
             {
                 "classes": ("collapse",),
-                "fields": ("raw_json", "error_message", "created_at", "updated_at"),
+                "fields": (
+                    "raw_json",
+                    "error_message",
+                    "created_at",
+                    "applied_at",
+                    "updated_at",
+                ),
             },
         ),
     )
@@ -534,3 +544,234 @@ class TestedVacancyAdmin(VacancyAdminBase):
 @admin.register(Vacancy)
 class VacancyAdmin(VacancyAdminBase):
     """Полный список (new / applied / skipped / error / blocked)."""
+
+
+class ChatMessageInline(admin.TabularInline):
+    model = ChatMessage
+    extra = 0
+    can_delete = False
+    fields = ("direction", "text_full", "sent_at", "author_label", "external_id")
+    readonly_fields = fields
+    ordering = ("id",)
+    show_change_link = True
+
+    @admin.display(description="Текст")
+    def text_full(self, obj: ChatMessage) -> str:
+        raw = (obj.text or "").strip()
+        if not raw:
+            return "—"
+        return format_html(
+            '<pre style="white-space:pre-wrap;max-width:720px;margin:0;'
+            'font-size:12px;line-height:1.35">{}</pre>',
+            raw,
+        )
+
+    def has_add_permission(self, request, obj=None) -> bool:
+        return False
+
+
+class ChatActionInline(admin.TabularInline):
+    model = ChatAction
+    extra = 0
+    can_delete = False
+    fields = ("kind", "status", "delay_sec", "escalate_reason", "created_at")
+    readonly_fields = fields
+    ordering = ("-id",)
+
+    def has_add_permission(self, request, obj=None) -> bool:
+        return False
+
+
+@admin.register(ChatThread)
+class ChatThreadAdmin(admin.ModelAdmin):
+    list_display = (
+        "chat_id",
+        "title_short",
+        "company_name",
+        "status",
+        "bot_paused",
+        "vacancy_hh_id",
+        "hh_link",
+        "updated_at",
+    )
+    list_filter = ("status", "bot_paused", "source")
+    search_fields = (
+        "chat_id",
+        "title",
+        "company_name",
+        "company_hh_id",
+        "vacancy_hh_id",
+        "last_preview",
+        "paused_reason",
+    )
+    readonly_fields = (
+        "chat_id",
+        "created_at",
+        "updated_at",
+        "hh_link_detail",
+        "vacancy_link_detail",
+        "company_link_detail",
+        "preview_display",
+    )
+    ordering = ("-updated_at",)
+    inlines = (ChatMessageInline, ChatActionInline)
+    formfield_overrides = {
+        models.TextField: {"widget": Textarea(attrs={"rows": 4, "cols": 100})},
+    }
+    fieldsets = (
+        (
+            "Чат",
+            {
+                "fields": (
+                    "chat_id",
+                    "title",
+                    "subtitle",
+                    "status",
+                    "source",
+                    "hh_link_detail",
+                    "url",
+                )
+            },
+        ),
+        (
+            "Связи",
+            {
+                "fields": (
+                    "company_name",
+                    "company_hh_id",
+                    "company_link_detail",
+                    "vacancy_hh_id",
+                    "vacancy_link_detail",
+                )
+            },
+        ),
+        (
+            "Пауза бота",
+            {"fields": ("bot_paused", "paused_reason")},
+        ),
+        (
+            "Превью / даты",
+            {
+                "fields": (
+                    "preview_display",
+                    "last_preview",
+                    "last_inbound_at",
+                    "last_outbound_at",
+                    "last_inbound_hash",
+                    "created_at",
+                    "updated_at",
+                )
+            },
+        ),
+    )
+
+    @admin.display(description="Название")
+    def title_short(self, obj: ChatThread) -> str:
+        t = (obj.title or obj.chat_id or "").strip()
+        return t if len(t) <= 50 else t[:47] + "…"
+
+    @admin.display(description="HH")
+    def hh_link(self, obj: ChatThread):
+        url = obj.url or f"https://hh.ru/chat/{obj.chat_id}"
+        return format_html('<a href="{}" target="_blank" rel="noopener">чат</a>', url)
+
+    @admin.display(description="Ссылка на чат")
+    def hh_link_detail(self, obj: ChatThread):
+        url = obj.url or f"https://hh.ru/chat/{obj.chat_id}"
+        return format_html('<a href="{}" target="_blank" rel="noopener">{}</a>', url, url)
+
+    @admin.display(description="Вакансия")
+    def vacancy_link_detail(self, obj: ChatThread):
+        if not obj.vacancy_hh_id:
+            return "—"
+        return format_html(
+            '<a href="/admin/core/vacancy/{}/change/">{}</a>',
+            obj.vacancy_hh_id,
+            obj.vacancy_hh_id,
+        )
+
+    @admin.display(description="Компания")
+    def company_link_detail(self, obj: ChatThread):
+        if not obj.company_hh_id:
+            return "—"
+        return format_html(
+            '<a href="/admin/core/company/{}/change/">{}</a>',
+            obj.company_hh_id,
+            obj.company_hh_id,
+        )
+
+    @admin.display(description="Превью")
+    def preview_display(self, obj: ChatThread) -> str:
+        raw = (obj.last_preview or "").strip()
+        if not raw:
+            return "—"
+        return format_html(
+            '<pre style="white-space:pre-wrap;max-width:900px">{}</pre>',
+            raw,
+        )
+
+
+@admin.register(ChatMessage)
+class ChatMessageAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "chat_id_display",
+        "direction",
+        "text_short",
+        "sent_at",
+        "created_at",
+    )
+    list_filter = ("direction",)
+    search_fields = ("text", "chat__chat_id", "chat__title", "external_id")
+    readonly_fields = (
+        "id",
+        "chat",
+        "direction",
+        "text",
+        "sent_at",
+        "author_label",
+        "external_id",
+        "our_action",
+        "created_at",
+    )
+    ordering = ("-id",)
+
+    @admin.display(description="Чат", ordering="chat_id")
+    def chat_id_display(self, obj: ChatMessage) -> str:
+        return obj.chat_id
+
+    @admin.display(description="Текст")
+    def text_short(self, obj: ChatMessage) -> str:
+        t = (obj.text or "").strip()
+        return t if len(t) <= 80 else t[:77] + "…"
+
+
+@admin.register(ChatAction)
+class ChatActionAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "chat_id_display",
+        "kind",
+        "status",
+        "delay_sec",
+        "escalate_reason",
+        "created_at",
+    )
+    list_filter = ("kind", "status")
+    search_fields = ("chat__chat_id", "draft", "error_message", "escalate_reason")
+    readonly_fields = (
+        "id",
+        "chat",
+        "kind",
+        "draft",
+        "delay_sec",
+        "escalate_reason",
+        "status",
+        "error_message",
+        "created_at",
+    )
+    ordering = ("-id",)
+
+    @admin.display(description="Чат", ordering="chat_id")
+    def chat_id_display(self, obj: ChatAction) -> str:
+        return obj.chat_id

@@ -63,6 +63,7 @@ class Vacancy(models.Model):
     raw_json = models.TextField("Raw JSON", blank=True, null=True)
     created_at = models.DateTimeField("Создано")
     updated_at = models.DateTimeField("Обновлено")
+    applied_at = models.DateTimeField("Отклик отправлен", blank=True, null=True)
 
     class Meta:
         managed = False
@@ -114,3 +115,140 @@ class TestedVacancy(Vacancy):
         verbose_name = "Вакансия с тестом"
         verbose_name_plural = "Тесты"
         ordering = ["-updated_at"]
+
+
+class ChatThread(models.Model):
+    """Диалог hh.ru/chat (таблица chat_threads)."""
+
+    class Status(models.TextChoices):
+        NEW = "new", "Новый"
+        AWAITING_US = "awaiting_us", "Ждём наш ответ"
+        AWAITING_THEM = "awaiting_them", "Ждём HR"
+        NEEDS_HUMAN = "needs_human", "Нужен человек"
+        REJECTED = "rejected", "Отказ"
+        INTERVIEW = "interview", "Собеседование"
+        CLOSED = "closed", "Закрыт"
+        ERROR = "error", "Ошибка"
+
+    class Source(models.TextChoices):
+        RESPONSE = "response", "После отклика"
+        INBOUND = "inbound", "Входящий"
+        UNKNOWN = "unknown", "Неизвестно"
+
+    chat_id = models.CharField("Chat id", primary_key=True, max_length=64)
+    title = models.TextField("Заголовок", blank=True, default="")
+    subtitle = models.TextField("Подзаголовок", blank=True, null=True)
+    url = models.TextField("URL", blank=True, default="")
+    source = models.CharField(
+        "Источник",
+        max_length=32,
+        choices=Source.choices,
+        default=Source.UNKNOWN,
+    )
+    status = models.CharField(
+        "Статус",
+        max_length=32,
+        choices=Status.choices,
+        default=Status.NEW,
+        db_index=True,
+    )
+    bot_paused = models.BooleanField("Бот на паузе", default=False)
+    paused_reason = models.TextField("Причина паузы", blank=True, null=True)
+    vacancy_hh_id = models.CharField(
+        "Вакансия HH id", max_length=64, blank=True, null=True, db_index=True
+    )
+    company_hh_id = models.CharField(
+        "Компания HH id", max_length=64, blank=True, null=True, db_index=True
+    )
+    company_name = models.TextField("Компания", blank=True, null=True)
+    last_inbound_at = models.DateTimeField("Последнее входящее", blank=True, null=True)
+    last_outbound_at = models.DateTimeField(
+        "Последнее исходящее", blank=True, null=True
+    )
+    last_inbound_hash = models.CharField(
+        "Hash входящего", max_length=64, blank=True, null=True
+    )
+    last_preview = models.TextField("Превью", blank=True, null=True)
+    created_at = models.DateTimeField("Создано")
+    updated_at = models.DateTimeField("Обновлено")
+
+    class Meta:
+        managed = False
+        db_table = "chat_threads"
+        verbose_name = "Чат"
+        verbose_name_plural = "Чаты"
+        ordering = ["-updated_at"]
+
+    def __str__(self) -> str:
+        return f"{self.title or self.chat_id} [{self.status}]"
+
+
+class ChatMessage(models.Model):
+    """Сообщение в чате."""
+
+    class Direction(models.TextChoices):
+        IN = "in", "Входящее"
+        OUT = "out", "Исходящее"
+
+    id = models.BigAutoField(primary_key=True)
+    chat = models.ForeignKey(
+        ChatThread,
+        on_delete=models.CASCADE,
+        db_column="chat_id",
+        related_name="messages",
+        verbose_name="Чат",
+    )
+    direction = models.CharField(
+        "Направление", max_length=8, choices=Direction.choices
+    )
+    text = models.TextField("Текст")
+    sent_at = models.DateTimeField("Отправлено", blank=True, null=True)
+    author_label = models.TextField("Автор", blank=True, null=True)
+    external_id = models.CharField(
+        "External id", max_length=64, blank=True, null=True
+    )
+    our_action = models.CharField(
+        "Наше действие", max_length=32, blank=True, null=True
+    )
+    created_at = models.DateTimeField("Создано")
+
+    class Meta:
+        managed = False
+        db_table = "chat_messages"
+        verbose_name = "Сообщение чата"
+        verbose_name_plural = "Сообщения чатов"
+        ordering = ["id"]
+
+    def __str__(self) -> str:
+        preview = (self.text or "")[:40]
+        return f"{self.direction}: {preview}"
+
+
+class ChatAction(models.Model):
+    """Запланированное / выполненное действие бота в чате."""
+
+    id = models.BigAutoField(primary_key=True)
+    chat = models.ForeignKey(
+        ChatThread,
+        on_delete=models.CASCADE,
+        db_column="chat_id",
+        related_name="actions",
+        verbose_name="Чат",
+    )
+    kind = models.CharField("Тип", max_length=32)
+    draft = models.TextField("Черновик", blank=True, null=True)
+    delay_sec = models.FloatField("Delay сек", blank=True, null=True)
+    escalate_reason = models.TextField("Причина эскалации", blank=True, null=True)
+    status = models.CharField("Статус", max_length=32, default="planned")
+    error_message = models.TextField("Ошибка", blank=True, null=True)
+    created_at = models.DateTimeField("Создано")
+
+    class Meta:
+        managed = False
+        db_table = "chat_actions"
+        verbose_name = "Действие чата"
+        verbose_name_plural = "Действия чатов"
+        ordering = ["-id"]
+
+    def __str__(self) -> str:
+        return f"{self.kind} [{self.status}]"

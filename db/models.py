@@ -67,3 +67,4 @@ class Vacancy:
     raw_json: str | None = None  # запасной дамп карточки
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    applied_at: datetime | None = None  # когда впервые поставили applied

@@ -71,8 +71,10 @@ SYSTEM_PROMPT = """\
      ЗАПРЕЩЕНО писать комментарии (#, docstring) в коде, если в вопросе
      явно не просили комментарии. Только код, без пояснений над/в скрипте.
    НИКОГДА: «нет опыта / не умею / не работал с». Только позитив и как делал.
-2) Зарплата / офис / уход / мотивация - СТРОГО по КОНТЕКСТ ОТВЕТОВ HR.
+2) Зарплата / офис / уход / мотивация / оформление - СТРОГО по КОНТЕКСТ ОТВЕТОВ HR.
    - Офис/гибрид: только удалёнка; в single/multi - «Нет».
+   - Трудовой договор / официальное трудоустройство / ИП / ГПХ / самозанятость -
+     ВСЕГДА да / готов (оформление любое). Не путать с офисом.
    - ЗП в textarea: РОВНО текст из КОНТЕКСТ (первый ответ про ожидания,
      со скобкой в конце). Не перефразируй. Без сумм
      (кроме числового-only поля -> 400000).
@@ -343,6 +345,70 @@ def _is_prerequisite_yes_question(text: str) -> bool:
     return any(k in t for k in keys)
 
 
+def _is_employment_form_question(text: str) -> bool:
+    """Трудовой договор / оформление - да; не путать с офисом."""
+    t = text.lower().replace("ё", "е")
+    if any(x in t for x in ("офис", "гибрид", "переезд", "релокац")):
+        return False
+    keys = (
+        "трудоустрой",
+        "трудов",
+        "договор",
+        "гпх",
+        "самозанят",
+        "официальн",
+        "оформлен",
+        "в штат",
+        "штатн",
+    )
+    if any(k in t for k in keys):
+        return True
+    # «ИП» отдельно: не ловить «опыт», «типичный»
+    return bool(re.search(r"(?<![а-яa-z])ип(?![а-яa-z])", t))
+
+
+def _force_employment_yes(q: TestQuestion, ans: TestAnswer) -> TestAnswer:
+    """Оформление / трудовой договор - всегда Да."""
+    if not _is_employment_form_question(q.text):
+        return ans
+    if q.kind in (QuestionKind.SINGLE, QuestionKind.MULTI) and q.options:
+        yes = _pick_yes_option(q.options)
+        if yes is None:
+            return ans
+        selected_low = " ".join(s.lower() for s in ans.selected)
+        if yes in ans.selected or selected_low.strip() in ("да", "yes"):
+            return ans
+        if "да" in selected_low and "нет" not in selected_low:
+            return ans
+        logger.info(
+            "Q[{}]: оформление {!r} → принудительно {!r} (было {!r})",
+            q.index,
+            q.text[:60],
+            yes,
+            ans.selected,
+        )
+        return TestAnswer(
+            index=ans.index,
+            kind=ans.kind,
+            selected=(yes,),
+            use_custom=False,
+        )
+    if q.kind == QuestionKind.TEXT:
+        low = (ans.text or "").lower()
+        if low.startswith("да") or "готов" in low:
+            return ans
+        fixed = (
+            "Да, готов. Формат оформления любой "
+            "(трудовой договор, ИП, ГПХ и т.п.). "
+            "Работа только удалённо."
+        )
+        logger.info("Q[{}]: оформление text → канон «да»", q.index)
+        return TestAnswer(
+            index=ans.index, kind=ans.kind, text=fixed, use_custom=False
+        )
+    return ans
+
+
 def _pick_yes_option(options: tuple[str, ...]) -> str | None:
     for opt in options:
         ol = opt.strip().lower()
@@ -546,6 +612,7 @@ def _sanitize_code_answer(q: TestQuestion, ans: TestAnswer) -> TestAnswer:
 def _sanitize_answer(q: TestQuestion, ans: TestAnswer) -> TestAnswer:
     """Пост-обработка: пререквизиты → Да; гражданство РФ; ЗП; код без #; тире."""
     ans = _force_prerequisite_yes(q, ans)
+    ans = _force_employment_yes(q, ans)
     ans = _prefer_qa_experience_years(q, ans)
     ans = _force_citizenship_rf(q, ans)
 
@@ -798,8 +865,15 @@ def _fallback_answer(q: TestQuestion) -> TestAnswer:
                 return TestAnswer(
                     index=q.index, kind=q.kind, text="РФ", use_custom=True
                 )
+        # оформление / трудовой договор → да (не путать с офисом)
+        if _is_employment_form_question(q.text):
+            yes = _pick_yes_option(q.options)
+            if yes is not None:
+                return TestAnswer(index=q.index, kind=q.kind, selected=(yes,))
         # офис → нет / удалёнка
-        if any(x in text_l for x in ("офис", "гибрид", "удал")):
+        if any(x in text_l for x in ("офис", "гибрид")) or (
+            "удал" in text_l and "готов" not in text_l
+        ):
             for opt in q.options:
                 ol = opt.lower()
                 if "нет" in ol or "удал" in ol:

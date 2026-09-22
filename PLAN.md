@@ -30,10 +30,12 @@ SEARCH_URL (фильтры уже в URL)
 | `logging_setup.py` | В `--debug` — DEBUG в консоль + `run.log` |
 | `matcher/` | Один LLM-запрос: резюме + все названия → suitable/reject |
 | `resume/` | Локальная копия резюме для промпта |
-| `hh/` | Selenium: search, vacancy, actions, selectors |
+| `hh/` | Selenium: search, vacancy, actions, selectors, **chat_ui** |
+| `chat/` | Автоответы в chatik: classify / compose / delay / pipeline ([chat/PLAN.md](chat/PLAN.md)) |
 | `cover_letter/` | Шаблон письма |
 | `pipeline/` | scrape → LLM batch → skip/apply |
 | `run.py` | CLI: `python run.py [--debug] [--live]` |
+| `run_chat.py` | CLI чата: `python run_chat.py [--dry-run\|--live]` |
 
 ## Статусы вакансии в БД
 
