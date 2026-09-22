@@ -54,6 +54,13 @@ python run_daily.py --period 7 --apply-limit 200
 python run_queue.py --apply-limit 200
 ```
 
+### Повтор проблемных (error / blocked)
+
+```bash
+python retry_problems.py
+python retry_problems.py --status blocked --limit 5
+```
+
 ### Опросник при отклике (live / review)
 
 По умолчанию — **реальный отклик** (ответы LLM + финальная «Откликнуться»):
@@ -77,6 +84,7 @@ python review_tests.py --review
 - **Отклики** — applied (ссылка на hh, описание, сопроводительное и вся сохранённая инфа)
 - **Скипнутые** — skipped + причина
 - **Проблемные** — error / blocked
+- **Тесты** — вакансии с сохранённым опросником (Q&A) для проверки ответов
 - **Компании** — кэш страниц работодателей (описание переиспользуется между вакансиями)
 - **Все вакансии** — полный список со фильтром по статусу
 
@@ -111,6 +119,8 @@ docker compose up -d --build
 См. `.env.example`. Паузы: `HH_PAUSE_SEC=2.5`. Подсветка: `HH_HIGHLIGHT=1`. Картинки в Chrome отключены.
 
 Капча hh.ru: бот детектит `[data-qa=account-captcha-*]`, шлёт уведомление в Telegram (chat id захардкожен) и **ждёт**, пока ты решишь капчу в Chrome. Токен бота читается из `finance_bot/.env` (`BOT_TOKEN`), в этот проект не копируется.
+
+Картинки вакансий/CDN по-прежнему режутся (CDP), но `/captcha/picture` грузится — иначе капчу не видно.
 
 ## Ограничения
 

@@ -15,6 +15,7 @@ from core.models import (
     Company,
     ProblemVacancy,
     SkippedVacancy,
+    TestedVacancy,
     Vacancy,
 )
 
@@ -447,6 +448,87 @@ class ProblemVacancyAdmin(VacancyAdminBase):
     def error_short(self, obj: Vacancy) -> str:
         msg = obj.error_message or ""
         return msg if len(msg) <= 60 else msg[:57] + "…"
+
+
+@admin.register(TestedVacancy)
+class TestedVacancyAdmin(VacancyAdminBase):
+    """Все вакансии с сохранённым опросником — проверить ответы."""
+
+    list_display = (
+        "hh_id",
+        "title_short",
+        "company",
+        "status",
+        "qa_count",
+        "hh_link",
+        "updated_at",
+    )
+    list_filter = ("status",)
+    fieldsets = (
+        (
+            "Вакансия",
+            {
+                "fields": (
+                    "hh_id",
+                    "title",
+                    "company",
+                    "company_hh_id",
+                    "company_link_detail",
+                    "salary",
+                    "status",
+                    "match_score",
+                    "hh_link_detail",
+                    "url",
+                )
+            },
+        ),
+        (
+            "Опросник: вопросы и ответы",
+            {
+                "fields": ("test_qa_display", "test_qa"),
+            },
+        ),
+        (
+            "Сопроводительное и описание",
+            {
+                "fields": (
+                    "cover_letter",
+                    "description",
+                    "snippet",
+                    "skip_reason",
+                    "error_message",
+                )
+            },
+        ),
+        (
+            "Служебное",
+            {
+                "classes": ("collapse",),
+                "fields": ("raw_json", "created_at", "updated_at"),
+            },
+        ),
+    )
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        return (
+            qs.exclude(test_qa__isnull=True)
+            .exclude(test_qa="")
+            .extra(where=["btrim(test_qa) <> ''"])
+        )
+
+    @admin.display(description="Вопросов")
+    def qa_count(self, obj: Vacancy) -> int | str:
+        raw = obj.test_qa
+        if not raw:
+            return 0
+        try:
+            items = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            return "?"
+        if not isinstance(items, list):
+            return "?"
+        return len(items)
 
 
 @admin.register(Vacancy)

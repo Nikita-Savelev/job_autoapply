@@ -11,6 +11,7 @@ from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.remote.webelement import WebElement
 
 from hh import selectors as sel
+from hh.captcha import resolve_captcha_if_present
 from hh.highlight import clear_highlight, flash_click, show_banner, visual_enabled
 from matcher.test_answers import (
     QuestionKind,
@@ -139,7 +140,15 @@ def complete_response_test(
         Exception: если не удалось собрать/заполнить/отправить.
     """
     show_banner(driver, "Опросник работодателя — собираю вопросы")
+    resolve_captcha_if_present(driver, context="опросник: перед сбором вопросов")
+
     questions = scrape_test_questions(driver)
+    if not questions:
+        # Капча могла перекрыть task-body — ждём и пробуем ещё раз
+        if resolve_captcha_if_present(
+            driver, context="опросник: вопросы не найдены, проверка капчи"
+        ):
+            questions = scrape_test_questions(driver)
     if not questions:
         raise RuntimeError("Экран теста есть, но вопросы не найдены")
 
@@ -164,6 +173,7 @@ def complete_response_test(
     qa_json = serialize_test_qa(questions, answers)
     logger.info("опросник: {} вопросов, qa_json_len={}", len(questions), len(qa_json))
 
+    resolve_captcha_if_present(driver, context="опросник: перед заполнением")
     bodies = [
         el
         for el in driver.find_elements(By.CSS_SELECTOR, sel.TEST_TASK_BODY)
@@ -176,8 +186,12 @@ def complete_response_test(
         _scroll(driver, body)
         show_banner(driver, f"Ответ на вопрос {q.index + 1}/{len(questions)}")
         _fill_question(driver, body, q, ans, pause_sec=pause_sec)
+        resolve_captcha_if_present(
+            driver, context=f"опросник: после вопроса {q.index + 1}"
+        )
 
     _attach_letter_in_test(driver, letter, pause_sec=pause_sec)
+    resolve_captcha_if_present(driver, context="опросник: после письма")
 
     if dumper is not None:
         try:
@@ -194,6 +208,10 @@ def complete_response_test(
         return qa_json
 
     _submit_test_form(driver, pause_sec=pause_sec)
+    # Капча часто после финального «Откликнуться» на тесте
+    resolve_captcha_if_present(
+        driver, context="опросник: после Откликнуться"
+    )
 
     if dumper is not None:
         try:
@@ -352,6 +370,11 @@ def _attach_letter_in_test(
 
     end = time.time() + 10.0
     while time.time() < end:
+        if resolve_captcha_if_present(
+            driver, context="опросник: капча при ожидании поля письма"
+        ):
+            end = time.time() + 10.0
+            continue
         if _exists(driver, sel.RESPONSE_LETTER_TEXTAREA):
             ta = driver.find_element(By.CSS_SELECTOR, sel.RESPONSE_LETTER_TEXTAREA)
             _fill_textarea(driver, ta, letter, pause_sec=pause_sec)
@@ -363,9 +386,15 @@ def _attach_letter_in_test(
 
 def _submit_test_form(driver: WebDriver, *, pause_sec: float) -> None:
     show_banner(driver, "Отправляю отклик после опросника")
+    resolve_captcha_if_present(driver, context="опросник: перед submit")
     end = time.time() + 12.0
     submit = None
     while time.time() < end:
+        if resolve_captcha_if_present(
+            driver, context="опросник: капча при поиске submit"
+        ):
+            end = time.time() + 12.0
+            continue
         for css in (
             sel.RESPONSE_SUBMIT_POPUP,
             sel.RESPONSE_LETTER_SUBMIT,
@@ -401,7 +430,9 @@ def _submit_test_form(driver: WebDriver, *, pause_sec: float) -> None:
         raise RuntimeError("Кнопка «Откликнуться» после опросника не найдена/disabled")
 
     _click_el(driver, submit, pause_sec=pause_sec, label="Откликнуться (после теста)")
-
+    resolve_captcha_if_present(
+        driver, context="опросник: сразу после клика submit"
+    )
 
 # --- helpers ---
 

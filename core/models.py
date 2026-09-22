@@ -104,3 +104,13 @@ class ProblemVacancy(Vacancy):
         verbose_name = "Проблемная вакансия"
         verbose_name_plural = "Проблемные"
         ordering = ["-updated_at"]
+
+
+class TestedVacancy(Vacancy):
+    """Вакансии, у которых сохранён опросник (Q&A) — для проверки ответов."""
+
+    class Meta:
+        proxy = True
+        verbose_name = "Вакансия с тестом"
+        verbose_name_plural = "Тесты"
+        ordering = ["-updated_at"]

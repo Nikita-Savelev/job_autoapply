@@ -37,6 +37,33 @@ def captcha_visible(driver: WebDriver) -> bool:
     return False
 
 
+def refresh_captcha_image(driver: WebDriver) -> None:
+    """Перезагрузить <img> капчи (на случай, если картинка не подтянулась)."""
+    try:
+        n = driver.execute_script(
+            """
+            const imgs = document.querySelectorAll(
+              "[data-qa='account-captcha-picture'], img[src*='/captcha/picture']"
+            );
+            let n = 0;
+            for (const img of imgs) {
+              try {
+                const u = new URL(img.getAttribute('src') || img.src, location.origin);
+                u.searchParams.set('_r', String(Date.now()));
+                img.src = u.toString();
+                n += 1;
+              } catch (e) {}
+            }
+            return n;
+            """
+        )
+        if n:
+            logger.info("Капча: перезагрузил {} картинок", n)
+            time.sleep(0.4)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("refresh_captcha_image failed: {}", exc)
+
+
 def resolve_captcha_if_present(
     driver: WebDriver,
     *,
@@ -52,6 +79,9 @@ def resolve_captcha_if_present(
     """
     if not captcha_visible(driver):
         return False
+
+    # Картинка капчи должна грузиться (остальные img режем в browser.py)
+    refresh_captcha_image(driver)
 
     url = ""
     try:

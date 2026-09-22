@@ -16,7 +16,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
 from hh import selectors as sel
-from hh.captcha import captcha_visible, resolve_captcha_if_present
+from hh.captcha import CaptchaTimeout, captcha_visible, resolve_captcha_if_present
 from hh.highlight import clear_highlight, flash_click, show_banner, visual_enabled
 
 
@@ -435,6 +435,8 @@ def _complete_employer_test(
         except Exception:  # noqa: BLE001
             pass
 
+    resolve_captcha_if_present(driver, context="старт опросника")
+
     try:
         qa_json = complete_response_test(
             driver,
@@ -447,6 +449,8 @@ def _complete_employer_test(
             dumper=dumper,
             submit=submit,
         )
+    except CaptchaTimeout:
+        raise
     except Exception as exc:  # noqa: BLE001
         logger.exception("Не удалось пройти опросник: {}", exc)
         if dumper is not None:

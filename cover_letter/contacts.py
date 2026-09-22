@@ -1,6 +1,6 @@
 """Актуальные контакты для откликов (не из PDF резюме).
 
-Можно переопределить через .env: HH_PHONE, HH_EMAIL, HH_TELEGRAM.
+Можно переопределить через .env: HH_PHONE, HH_EMAIL, HH_TELEGRAM, HH_GITHUB.
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ RESUME_NAME_ALIASES = ("Савельев", "Савельева")
 DEFAULT_PHONE = "+374 98 99-61-56"
 DEFAULT_EMAIL = "nik1ta.savelev.2000@inbox.ru"
 DEFAULT_TELEGRAM = "@GamievNikita"
+DEFAULT_GITHUB = "https://github.com/Nikita-Savelev"
 
 
 def candidate_phone() -> str:
@@ -27,3 +28,7 @@ def candidate_email() -> str:
 
 def candidate_telegram() -> str:
     return env("HH_TELEGRAM", DEFAULT_TELEGRAM)
+
+
+def candidate_github() -> str:
+    return env("HH_GITHUB", DEFAULT_GITHUB)

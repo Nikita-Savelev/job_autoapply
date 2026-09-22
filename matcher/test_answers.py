@@ -43,51 +43,49 @@ SYSTEM_PROMPT = """\
 Ты отвечаешь на опросник работодателя при отклике на вакансию от имени кандидата.
 
 Кандидат: Senior Python Backend Developer (~5 лет), сейчас в Армении, ищет удалёнку.
+Основной профиль - backend (Python, FastAPI/Django, Postgres, очереди, Docker),
+не чистый AQA/SDET/мобильное QA и не C++/desktop-специалист.
+
+СТИЛЬ (критично - меньше воды):
+- Пиши плотно: факты, стек, действие, результат. Без вводных («хотел бы отметить»,
+  «в своей практике я активно использовал», «что позволило обеспечить»).
+- Техника: обычно 2-4 коротких предложения ИЛИ маркированный список из 2-4 пунктов.
+  Не раздувай до эссе. HR-ответы - 1-3 предложения по канону.
+- Не повторяй вопрос своими словами. Не пиши общие фразы без кейса.
 
 Правила ответов:
-1) Технические вопросы (архитектура, SQL, Kafka/RabbitMQ, Docker/K8s, asyncio,
-   профилирование, high-load, сети, конкретный стек) — отвечай как синьор.
-   Ответ должен быть правильным и ожидаемым работодателем: конкретика, кейсы,
-   термины, без воды. Опирайся на резюме и на ОПИСАНИЕ ВАКАНСИИ: подчёркивай
-   опыт и стек, которые нужны именно этой роли (требования, задачи, домен).
-   Если темы нет в резюме — всё равно отвечай так, будто опыт есть (кейсы из
-   бэкенда/интеграций, без выдуманных цифр и заказчиков), но формулируй под
-   нужды вакансии.
-   КРИТИЧНО — техническая точность (как Senior, не как junior с «красивыми»
-   словами):
-   - не путай сущности: RabbitMQ/Kafka — брокеры сообщений, не «протоколы»;
-     HTTP/AMQP/TCP/IP — протоколы; Ethernet — канал/стек L2, не «протокол
-     приложения»; REST — стиль API поверх HTTP и т.п.;
-   - называй вещи своими именами, без псевдотехнической воды
-     («знаком с принципами Ethernet и IP» без кейса — плохо);
-   - если вопрос про сети/Control Plane — пиши про реальный опыт уровня
-     бэкенда: TCP/HTTP, таймауты, retries, DNS, TLS, балансировка, очереди,
-     backpressure; не подменяй брокерами ответ про сетевой стек, если вопрос
-     именно про сетевые технологии.
-   КРИТИЧНО: НИКОГДА не пиши, что чего-то не умеешь / нет опыта / «не работал с»
-   / «коммерческого опыта нет». Никаких оговорок в начале («у меня нет…, однако»).
-   Только позитивный опыт и как делал — но формулировки должны быть корректны.
-2) Зарплата, офис/гибрид/удалёнка, «почему ушли», «кем видите себя через N лет»,
-   мотивация, soft-skills — СТРОГО по блоку КОНТЕКСТ ОТВЕТОВ HR (формулировки
-   можно чуть сжать, смысл не менять).
-   - Офис/гибрид: только удалёнка, офис не подходит.
-   - Зарплата (КРИТИЧНО): в свободном текстовом ответе НИКОГДА не пиши сумму
-     (ни 400 000, ни вилку, ни «от N»). Только открытость к предложениям /
-     смотрю рынок / готов обсудить вилку компании.
-     Цифру называй ТОЛЬКО если поле явно числовое (только цифры, иначе
-     форму не принять) — тогда ориентир 400000 без лишнего текста.
-     В обычном textarea/вопросе «минимум и комфорт» — БЕЗ цифр.
-3) Пререквизиты «сделали / посмотрели / ознакомились?» (видео в вакансии,
-   прочитали описание, изучили материалы, прошли тест и т.п.) — ВСЕГДА
-   отвечай «Да» (или эквивалент «да, посмотрел»). Мы идеальный кандидат:
-   всё нужное для рассмотрения уже сделали. НИКОГДА не выбирай «Нет».
-   Это НЕ про офис/переезд — там по правилу 2.
-4) Single choice: выбери РОВНО одну опцию из списка options (точный текст).
-   Если нужен свободный текст и есть опция вроде «Свой вариант» — use_custom=true
-   и заполни text.
-5) Multi choice: выбери одну или несколько опций из options (точные тексты).
-6) Text: заполни text (2–8 предложений для техники; для HR — кратко по канону).
-   В ответах кандидату: только короткое тире «-», никогда длинное «—» / «–».
+1) Технические вопросы - как синьор: конкретика и термины, без воды.
+   Опирайся на резюме и ОПИСАНИЕ ВАКАНСИИ. Если темы нет в резюме - отвечай так,
+   будто опыт есть (кейсы из бэкенда/интеграций, без выдуманных цифр/заказчиков).
+   КРИТИЧНО - точность:
+   - RabbitMQ/Kafka - брокеры, не «протоколы»; HTTP/AMQP/TCP/IP - протоколы;
+   - сети/Control Plane: TCP/HTTP, таймауты, retries, DNS, TLS, балансировка,
+     сокеты, tcpdump/Wireshark при уместности;
+     ЗАПРЕЩЕНО подменять ответ Kafka/Rabbit или только «микросервисы через REST»,
+     если вопрос именно про сети;
+   - годы: ~5 лет backend. Автотесты/AQA/pytest/QA на Python - тоже ~5 лет:
+     эти практики шли параллельно коммерческой разработке (не «2 года AQA»).
+     В single/multi бери опцию ближе к 5 / 5+ / 3-5, не 1-2.
+   - C++/PyQt/редкий стек: не выдумывай годы; смежный опыт без «нет опыта»;
+   - код: валидный Python (import с маленькой буквы).
+     ЗАПРЕЩЕНО писать комментарии (#, docstring) в коде, если в вопросе
+     явно не просили комментарии. Только код, без пояснений над/в скрипте.
+   НИКОГДА: «нет опыта / не умею / не работал с». Только позитив и как делал.
+2) Зарплата / офис / уход / мотивация - СТРОГО по КОНТЕКСТ ОТВЕТОВ HR.
+   - Офис/гибрид: только удалёнка; в single/multi - «Нет».
+   - ЗП в textarea: РОВНО текст из КОНТЕКСТ (первый ответ про ожидания,
+     со скобкой в конце). Не перефразируй. Без сумм
+     (кроме числового-only поля -> 400000).
+3) Пререквизиты (видео/ознакомились) - всегда «Да». Не про офис.
+   Google Form/анкета «заполните» - не «посмотрел», а что заполните/пройдёте.
+4) GitHub/портфолио: ВСЕГДА бери URL из блока КОНТАКТЫ (GitHub). В ответ -
+   сама ссылка или одна короткая фраза + ссылка. Не уходи в «расскажу на собесе».
+5) Телефон / Telegram / email: ТОЛЬКО из КОНТАКТЫ. Не выдумывай.
+6) Гражданство: ВСЕГДА РФ / Россия / российское (не Армения). В single/multi —
+   опция про РФ/Россию; в text — «РФ» или «Россия».
+7) Single: ровно одна опция из options (точный текст). Свой вариант -> use_custom.
+8) Multi: одна или несколько опций из options (точные тексты).
+9) Text: техника коротко (см. СТИЛЬ); HR кратко. Только короткое тире «-».
 
 Ответ СТРОГО JSON без markdown:
 {
@@ -160,6 +158,23 @@ def answer_test_questions(
         )
 
     hr_context = hr_context if hr_context is not None else load_hr_answer_context()
+    try:
+        from cover_letter.contacts import (
+            candidate_email,
+            candidate_github,
+            candidate_phone,
+            candidate_telegram,
+        )
+
+        contacts_block = (
+            f"Телефон: {candidate_phone()}\n"
+            f"Email: {candidate_email()}\n"
+            f"Telegram: {candidate_telegram()}\n"
+            f"GitHub: {candidate_github()}"
+        )
+    except Exception:  # noqa: BLE001
+        contacts_block = "(контакты не заданы)"
+
     desc = (vacancy_description or "").strip()
     if len(desc) > 10000:
         desc = desc[:10000] + "\n…[обрезано]"
@@ -178,6 +193,9 @@ def answer_test_questions(
         f"Целевая роль: {target_role()}\n"
         f"Вакансия: {vacancy_title or '—'}\n"
         f"Компания: {company or '—'}\n\n"
+        f"=== КОНТАКТЫ (телефон/Telegram/email/GitHub в ответах) ===\n"
+        f"{contacts_block}\n"
+        f"=== КОНЕЦ КОНТАКТОВ ===\n\n"
         f"=== ОПИСАНИЕ ВАКАНСИИ ===\n{desc or '(описания нет)'}\n"
         f"=== КОНЕЦ ОПИСАНИЯ ===\n\n"
         f"=== КОНТЕКСТ ОТВЕТОВ HR ===\n{hr_context}\n"
@@ -266,10 +284,10 @@ def answer_test_questions(
     return out
 
 
+# Канон из job_search/context/faq.md (скобка в конце — часть шаблона).
 _SALARY_DEFAULT_NO_NUMBER = (
-    "Я только недавно вышел на рынок и пока присматриваюсь к требованиям "
-    "и актуальным вилкам. Открыт к предложениям - если подскажете вилку "
-    "по вакансии, сразу скажу, сойдёмся или нет."
+    "Я только недавно вышел на рынок и пока только присматриваюсь "
+    "к требованиям и актуальным вилкам. Но я открыт к любым предложениям)"
 )
 
 
@@ -287,32 +305,24 @@ def _looks_like_numeric_only_answer(text: str) -> bool:
     return bool(re.fullmatch(r"\d{4,7}", cleaned))
 
 
-def _strip_salary_amounts(text: str) -> str:
-    """Убрать суммы из свободного текста про зарплату."""
-    # явные суммы вида 400 000 / 400000 / 400 тыс
-    out = re.sub(
-        r"(?i)(?:около|ориентир(?:очно)?|примерно)?\s*"
-        r"\d[\d\s\u00a0]{2,}(?:\s*[.,]\d+)?\s*"
-        r"(?:тыс\.?|тысяч|k|₽|руб\.?|р\.?)?",
-        "",
-        text,
-    )
-    out = re.sub(
-        r"(?i)(?:если\s+нужно\s+назвать\s+цифру[^.]*(?:\.|$))",
-        "",
-        out,
-    )
-    out = re.sub(r"[ \t]{2,}", " ", out)
-    out = re.sub(r"\s+([,.])", r"\1", out)
-    out = re.sub(r"\.\s*\.", ".", out)
-    return out.strip(" \t\n,;.—–-")
-
-
 def _is_prerequisite_yes_question(text: str) -> bool:
     """Вопрос «сделали X для рассмотрения?» — ожидается Да."""
     t = text.lower()
     # офис/переезд — отдельные правила, не пререквизит
     if any(x in t for x in ("офис", "гибрид", "переезд", "релокац")):
+        return False
+    # внешняя анкета/форма — не «посмотрел видео»
+    if any(
+        x in t
+        for x in (
+            "forms.gle",
+            "docs.google",
+            "анкет",
+            "заполните",
+            "заполни",
+            "google form",
+        )
+    ):
         return False
     keys = (
         "видео",
@@ -418,12 +428,135 @@ def _normalize_dashes(text: str) -> str:
     return text.replace("—", "-").replace("–", "-").replace("−", "-")
 
 
+def _question_asks_for_comments(text: str) -> bool:
+    t = text.lower()
+    return any(
+        x in t
+        for x in ("комментар", "поясн", "объясн", "документир", "docstring")
+    )
+
+
+def _looks_like_code_answer(text: str) -> bool:
+    """Грубо: ответ похож на скрипт, а не на прозу."""
+    t = text.strip()
+    if "\n" not in t and not re.search(r"\b(import|def |class |subprocess)\b", t):
+        return False
+    hits = 0
+    for pat in (
+        r"(?m)^\s*import\s+\w",
+        r"(?m)^\s*from\s+\w",
+        r"(?m)^\s*def\s+\w",
+        r"(?m)^\s*class\s+\w",
+        r"\bsubprocess\b",
+        r"(?m)^\s*with\s+open\(",
+        r"(?m)^\s*print\(",
+    ):
+        if re.search(pat, t, re.I):
+            hits += 1
+    return hits >= 2 or bool(re.search(r"(?m)^\s*import\s+\w", t, re.I))
+
+
+def _strip_inline_python_comment(line: str) -> str:
+    """Убрать #… вне строк; кавычки — упрощённо."""
+    out: list[str] = []
+    i = 0
+    quote: str | None = None
+    while i < len(line):
+        ch = line[i]
+        if quote:
+            out.append(ch)
+            if ch == "\\" and i + 1 < len(line):
+                out.append(line[i + 1])
+                i += 2
+                continue
+            if ch == quote:
+                quote = None
+            i += 1
+            continue
+        if ch in ("'", '"'):
+            quote = ch
+            out.append(ch)
+            i += 1
+            continue
+        if ch == "#":
+            break
+        out.append(ch)
+        i += 1
+    return "".join(out).rstrip()
+
+
+def _strip_code_comments(text: str) -> str:
+    """Убрать #/пустые поясняющие строки из ответа-скрипта."""
+    lines_out: list[str] = []
+    for line in text.splitlines():
+        stripped = line.lstrip()
+        if stripped.startswith("#"):
+            continue
+        cleaned = _strip_inline_python_comment(line)
+        # пустые строки после вычистки комментариев пропускаем пачкой позже
+        lines_out.append(cleaned)
+    # схлопнуть подряд идущие пустые, trim краёв
+    compact: list[str] = []
+    blank = False
+    for line in lines_out:
+        if not line.strip():
+            if compact and not blank:
+                compact.append("")
+            blank = True
+            continue
+        blank = False
+        # Import X → import X
+        m = re.match(r"^(\s*)Import(\s+\w)", line)
+        if m:
+            line = f"{m.group(1)}import{m.group(2)}{line[m.end():]}"
+        compact.append(line)
+    while compact and not compact[0].strip():
+        compact.pop(0)
+    while compact and not compact[-1].strip():
+        compact.pop()
+    return "\n".join(compact)
+
+
+def _sanitize_code_answer(q: TestQuestion, ans: TestAnswer) -> TestAnswer:
+    if q.kind != QuestionKind.TEXT or not ans.text.strip():
+        return ans
+    if _question_asks_for_comments(q.text):
+        return ans
+    if not _looks_like_code_answer(ans.text):
+        return ans
+    cleaned = _strip_code_comments(ans.text)
+    if cleaned == ans.text.strip() or cleaned == ans.text:
+        # ещё поправить Import даже без комментариев
+        fixed = re.sub(r"(?m)^(\s*)Import(\s+\w)", r"\1import\2", ans.text)
+        if fixed == ans.text:
+            return ans
+        cleaned = fixed
+    if cleaned != ans.text:
+        logger.info("Q[{}]: убрал комментарии / поправил Import в коде", q.index)
+        return TestAnswer(
+            index=ans.index,
+            kind=ans.kind,
+            text=cleaned,
+            selected=ans.selected,
+            use_custom=ans.use_custom,
+        )
+    return ans
+
+
 def _sanitize_answer(q: TestQuestion, ans: TestAnswer) -> TestAnswer:
-    """Пост-обработка: пререквизиты → Да; без «не умею»; ЗП без цифр; тире."""
+    """Пост-обработка: пререквизиты → Да; гражданство РФ; ЗП; код без #; тире."""
     ans = _force_prerequisite_yes(q, ans)
+    ans = _prefer_qa_experience_years(q, ans)
+    ans = _force_citizenship_rf(q, ans)
 
     if ans.text.strip():
         dashed = _normalize_dashes(ans.text)
+        # Скобку у канона ЗП не трогаем; у остального — убрать «сиротскую» ).
+        if not (
+            q.kind == QuestionKind.TEXT and _is_salary_question(q.text)
+        ):
+            if dashed.endswith(")") and dashed.count("(") == 0:
+                dashed = dashed.rstrip(") ").strip()
         if dashed != ans.text:
             ans = TestAnswer(
                 index=ans.index,
@@ -434,6 +567,21 @@ def _sanitize_answer(q: TestQuestion, ans: TestAnswer) -> TestAnswer:
             )
 
     if q.kind == QuestionKind.TEXT and ans.text.strip():
+        if _is_salary_question(q.text):
+            if _looks_like_numeric_only_answer(ans.text):
+                return ans
+            if ans.text.strip() != _SALARY_DEFAULT_NO_NUMBER:
+                logger.info(
+                    "Q[{}]: зарплата → фиксированный шаблон",
+                    q.index,
+                )
+            return TestAnswer(
+                index=ans.index,
+                kind=ans.kind,
+                text=_SALARY_DEFAULT_NO_NUMBER,
+                selected=ans.selected,
+                use_custom=ans.use_custom,
+            )
         cleaned = _strip_lack_of_skill(ans.text)
         if cleaned != ans.text.strip():
             logger.info(
@@ -441,7 +589,6 @@ def _sanitize_answer(q: TestQuestion, ans: TestAnswer) -> TestAnswer:
                 q.index,
             )
             if len(cleaned) < 40:
-                # слишком мало осталось — лучше не оставлять пустышку с отрицанием
                 logger.warning(
                     "Q[{}]: после чистки ответ короткий ({}) — оставляю очищенный",
                     q.index,
@@ -454,42 +601,184 @@ def _sanitize_answer(q: TestQuestion, ans: TestAnswer) -> TestAnswer:
                 selected=ans.selected,
                 use_custom=ans.use_custom,
             )
+        ans = _boost_qa_years_in_text(q, ans)
+        ans = _sanitize_code_answer(q, ans)
 
-    if q.kind != QuestionKind.TEXT:
-        return ans
-    if not ans.text or not _is_salary_question(q.text):
-        return ans
-    # числовое-only поле: оставляем как есть
-    if _looks_like_numeric_only_answer(ans.text):
-        return ans
-    stripped = _strip_salary_amounts(ans.text)
-    # если после чистки почти ничего / всё ещё есть крупные числа — канон без цифр
-    if (
-        len(stripped) < 40
-        or re.search(r"\d{3,}", stripped)
-        or "400" in stripped
-    ):
-        logger.info(
-            "Q[{}]: убрал сумму из ответа про зарплату → канон без цифр",
-            q.index,
+    return ans
+
+
+def _is_citizenship_question(text: str) -> bool:
+    t = text.lower()
+    return any(
+        x in t
+        for x in (
+            "гражданств",
+            "citizen",
+            "национальн",
+            "passport",
+            "паспорт",
         )
+    )
+
+
+def _pick_rf_citizenship_option(options: tuple[str, ...]) -> str | None:
+    ranked: list[tuple[int, str]] = []
+    for opt in options:
+        ol = opt.lower()
+        score = 0
+        if any(x in ol for x in ("рф", "росси", "russian", "russia")):
+            score = 10
+        elif "армен" in ol or "armenia" in ol:
+            score = -5
+        if score > 0:
+            ranked.append((score, opt))
+    if not ranked:
+        return None
+    ranked.sort(key=lambda x: -x[0])
+    return ranked[0][1]
+
+
+def _force_citizenship_rf(q: TestQuestion, ans: TestAnswer) -> TestAnswer:
+    """Гражданство всегда РФ / Россия."""
+    if not _is_citizenship_question(q.text):
+        return ans
+    if q.kind in (QuestionKind.SINGLE, QuestionKind.MULTI) and q.options:
+        rf = _pick_rf_citizenship_option(q.options)
+        if rf is not None:
+            if rf in ans.selected:
+                return ans
+            logger.info(
+                "Q[{}]: гражданство {!r} → {!r}",
+                q.index,
+                ans.selected,
+                rf,
+            )
+            return TestAnswer(
+                index=ans.index,
+                kind=ans.kind,
+                selected=(rf,),
+                text="",
+                use_custom=False,
+            )
+        if q.has_custom:
+            logger.info("Q[{}]: гражданство → свой вариант «РФ»", q.index)
+            return TestAnswer(
+                index=ans.index,
+                kind=ans.kind,
+                selected=(),
+                text="РФ",
+                use_custom=True,
+            )
+        return ans
+    if q.kind == QuestionKind.TEXT or ans.use_custom:
+        text = (ans.text or "").strip()
+        low = text.lower()
+        if any(x in low for x in ("рф", "росси", "russian")) and "армен" not in low:
+            return ans
+        logger.info("Q[{}]: гражданство текст → РФ", q.index)
         return TestAnswer(
             index=ans.index,
             kind=ans.kind,
-            text=_SALARY_DEFAULT_NO_NUMBER,
-            selected=ans.selected,
-            use_custom=ans.use_custom,
-        )
-    if stripped != ans.text:
-        logger.info("Q[{}]: вырезал суммы из ответа про зарплату", q.index)
-        return TestAnswer(
-            index=ans.index,
-            kind=ans.kind,
-            text=_normalize_dashes(stripped),
-            selected=ans.selected,
+            text="РФ",
+            selected=ans.selected if ans.use_custom else (),
             use_custom=ans.use_custom,
         )
     return ans
+
+
+def _is_qa_years_question(text: str) -> bool:
+    t = text.lower()
+    if "лет" not in t and "опыт" not in t:
+        return False
+    return any(
+        x in t
+        for x in (
+            "авто тест",
+            "автотест",
+            "автоматизац",
+            "aqa",
+            "sdet",
+            "ручн",
+            "mobile",
+            "мобильн",
+            "тестирован",
+        )
+    )
+
+
+def _prefer_qa_experience_years(q: TestQuestion, ans: TestAnswer) -> TestAnswer:
+    """AQA/автотесты: ~5 лет (шли вместе с коммерческим backend)."""
+    if q.kind not in (QuestionKind.SINGLE, QuestionKind.MULTI):
+        return ans
+    if not _is_qa_years_question(q.text):
+        return ans
+    if not ans.selected:
+        return ans
+
+    def _rank(opt: str) -> int:
+        ol = opt.lower().replace(" ", "")
+        if "5+" in ol or ol in ("5", "5лет", "более5", "более5лет"):
+            return 100
+        if "4-5" in ol or "3-5" in ol or "5лет" in ol:
+            return 90
+        if "3-4" in ol or ol.startswith("3"):
+            return 70
+        if "2-3" in ol:
+            return 40
+        if "1-2" in ol or ol.startswith("1"):
+            return 10
+        if "нет" in ol or "без опыта" in ol:
+            return -1
+        return 0
+
+    preferred = max(q.options, key=_rank, default=None)
+    if preferred is None or _rank(preferred) <= 0:
+        return ans
+    if preferred in ans.selected:
+        return ans
+    cur_rank = max((_rank(s) for s in ans.selected), default=0)
+    if cur_rank >= 90:
+        return ans
+    logger.info(
+        "Q[{}]: годы QA/автотесты {!r} → {!r} (~5 лет)",
+        q.index,
+        ans.selected,
+        preferred,
+    )
+    return TestAnswer(
+        index=ans.index,
+        kind=ans.kind,
+        selected=(preferred,),
+        text=ans.text,
+        use_custom=False,
+    )
+
+
+def _boost_qa_years_in_text(q: TestQuestion, ans: TestAnswer) -> TestAnswer:
+    """В textarea про автотесты/AQA не занижать годы до 1-2."""
+    if q.kind != QuestionKind.TEXT or not ans.text.strip():
+        return ans
+    if not _is_qa_years_question(q.text):
+        return ans
+    text = ans.text
+    new = re.sub(
+        r"(?i)(?:около|примерно)?\s*"
+        r"(?:[12]|1\s*[-–]\s*2|2\s*[-–]\s*3)\s*"
+        r"(?:года|год|лет)",
+        "около 5 лет",
+        text,
+        count=1,
+    )
+    if new == text:
+        return ans
+    logger.info("Q[{}]: годы автотестов в тексте → около 5 лет", q.index)
+    return TestAnswer(
+        index=ans.index,
+        kind=ans.kind,
+        text=new,
+        selected=ans.selected,
+        use_custom=ans.use_custom,
+    )
 
 
 def _fallback_answer(q: TestQuestion) -> TestAnswer:
@@ -501,6 +790,14 @@ def _fallback_answer(q: TestQuestion) -> TestAnswer:
             yes = _pick_yes_option(q.options)
             if yes is not None:
                 return TestAnswer(index=q.index, kind=q.kind, selected=(yes,))
+        if _is_citizenship_question(q.text):
+            rf = _pick_rf_citizenship_option(q.options)
+            if rf is not None:
+                return TestAnswer(index=q.index, kind=q.kind, selected=(rf,))
+            if q.has_custom:
+                return TestAnswer(
+                    index=q.index, kind=q.kind, text="РФ", use_custom=True
+                )
         # офис → нет / удалёнка
         if any(x in text_l for x in ("офис", "гибрид", "удал")):
             for opt in q.options:
@@ -531,6 +828,8 @@ def _fallback_answer(q: TestQuestion) -> TestAnswer:
             kind=QuestionKind.TEXT,
             text=_SALARY_DEFAULT_NO_NUMBER,
         )
+    if _is_citizenship_question(q.text):
+        return TestAnswer(index=q.index, kind=QuestionKind.TEXT, text="РФ")
     return TestAnswer(
         index=q.index,
         kind=QuestionKind.TEXT,
