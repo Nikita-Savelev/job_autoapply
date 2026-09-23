@@ -96,6 +96,7 @@ class VacancyAdminBase(admin.ModelAdmin):
         "hh_id",
         "created_at",
         "updated_at",
+        "hidden_at",
         "hh_link_detail",
         "company_link_detail",
         "test_qa_display",
@@ -337,9 +338,11 @@ class SkippedVacancyAdmin(VacancyAdminBase):
         "company",
         "match_score",
         "skip_reason_short",
+        "hidden_at",
         "hh_link",
         "updated_at",
     )
+    list_filter = (("hidden_at", admin.EmptyFieldListFilter),)
     list_filter = ()
     fieldsets = (
         (
@@ -361,7 +364,7 @@ class SkippedVacancyAdmin(VacancyAdminBase):
         ),
         (
             "Почему скип",
-            {"fields": ("skip_reason", "snippet", "description")},
+            {"fields": ("skip_reason", "hidden_at", "snippet", "description")},
         ),
         (
             "Опросник работодателя",

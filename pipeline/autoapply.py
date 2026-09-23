@@ -261,9 +261,12 @@ class AutoApplyPipeline:
         if self.dry_run:
             return False
         try:
-            return actions.hide_vacancy_on_serp(
+            hidden = actions.hide_vacancy_on_serp(
                 self.driver, hh_id, pause_sec=self.pause
             )
+            if hidden:
+                self.store.mark_hidden(hh_id)
+            return hidden
         except Exception as exc:  # noqa: BLE001
             logger.warning("Не удалось скрыть {} на выдаче: {}", hh_id, exc)
             return False

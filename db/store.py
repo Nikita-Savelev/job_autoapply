@@ -72,6 +72,9 @@ class VacancyStore:
             cur.execute(
                 "ALTER TABLE vacancies ADD COLUMN IF NOT EXISTS applied_at TIMESTAMPTZ"
             )
+            cur.execute(
+                "ALTER TABLE vacancies ADD COLUMN IF NOT EXISTS hidden_at TIMESTAMPTZ"
+            )
             # backfill: первый applied ≈ updated_at на момент миграции
             cur.execute(
                 """
@@ -204,6 +207,20 @@ class VacancyStore:
         used = self.count_applied_today()
         return max(0, cap - used)
 
+    def mark_hidden(self, hh_id: str) -> None:
+        """Зафиксировать, что вакансию скрыли с выдачи HH. Повторно не перезаписывает."""
+        now = _utc_now()
+        with self._conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE vacancies
+                SET hidden_at = %s
+                WHERE hh_id = %s AND hidden_at IS NULL
+                """,
+                (now, hh_id),
+            )
+        self._conn.commit()
+
     def get_company(self, hh_id: str) -> Company | None:
         with self._conn.cursor() as cur:
             cur.execute("SELECT * FROM companies WHERE hh_id = %s", (hh_id,))
@@ -300,10 +317,10 @@ class VacancyStore:
                     hh_id, title, url, status, company, company_hh_id, salary,
                     snippet, description, match_score, skip_reason, cover_letter,
                     test_qa, error_message, raw_json, created_at, updated_at,
-                    applied_at
+                    applied_at, hidden_at
                 ) VALUES (
                     %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s
+                    %s, %s, %s, %s
                 )
                 """,
                 (
@@ -325,6 +342,7 @@ class VacancyStore:
                     v.created_at,
                     v.updated_at,
                     v.applied_at,
+                    v.hidden_at,
                 ),
             )
         self._conn.commit()
@@ -338,7 +356,8 @@ class VacancyStore:
                     company_hh_id = %s, salary = %s, snippet = %s,
                     description = %s, match_score = %s, skip_reason = %s,
                     cover_letter = %s, test_qa = %s, error_message = %s,
-                    raw_json = %s, updated_at = %s, applied_at = %s
+                    raw_json = %s, updated_at = %s, applied_at = %s,
+                    hidden_at = %s
                 WHERE hh_id = %s
                 """,
                 (
@@ -358,6 +377,7 @@ class VacancyStore:
                     v.raw_json,
                     v.updated_at,
                     v.applied_at,
+                    v.hidden_at,
                     v.hh_id,
                 ),
             )
@@ -368,12 +388,15 @@ class VacancyStore:
         created = row["created_at"]
         updated = row["updated_at"]
         applied = row.get("applied_at")
+        hidden = row.get("hidden_at")
         if created.tzinfo is None:
             created = created.replace(tzinfo=timezone.utc)
         if updated.tzinfo is None:
             updated = updated.replace(tzinfo=timezone.utc)
         if applied is not None and applied.tzinfo is None:
             applied = applied.replace(tzinfo=timezone.utc)
+        if hidden is not None and hidden.tzinfo is None:
+            hidden = hidden.replace(tzinfo=timezone.utc)
         return Vacancy(
             hh_id=row["hh_id"],
             title=row["title"],
@@ -393,6 +416,7 @@ class VacancyStore:
             created_at=created,
             updated_at=updated,
             applied_at=applied,
+            hidden_at=hidden,
         )
 
     @staticmethod

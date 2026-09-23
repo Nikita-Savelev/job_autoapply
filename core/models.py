@@ -65,6 +65,7 @@ class Vacancy(models.Model):
     created_at = models.DateTimeField("Создано")
     updated_at = models.DateTimeField("Обновлено")
     applied_at = models.DateTimeField("Отклик отправлен", blank=True, null=True)
+    hidden_at = models.DateTimeField("Скрыта на HH", blank=True, null=True)
 
     class Meta:
         managed = False
