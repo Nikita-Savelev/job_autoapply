@@ -59,13 +59,16 @@ score от 0 до 1. В results должны быть ВСЕ переданны�
 """
 
 
+_MAX_MATCH_ATTEMPTS = 3
+
+
 def match_vacancies_batch(
     vacancies: Sequence[Vacancy],
     resume_text: str,
     *,
     role: str | None = None,
 ) -> dict[str, MatchDecision]:
-    """Один запрос к LLM на весь список. Ключ — hh_id."""
+    """Решения по списку. Если модель пропустила id, запрос повторяется только на них."""
     if not vacancies:
         return {}
 
@@ -76,6 +79,45 @@ def match_vacancies_batch(
         )
 
     role = role or target_role()
+    pending = list(vacancies)
+    out: dict[str, MatchDecision] = {}
+    for attempt in range(1, _MAX_MATCH_ATTEMPTS + 1):
+        if not pending:
+            break
+        if attempt > 1:
+            logger.warning(
+                "LLM повтор {} на {} вакансий без ответа",
+                attempt,
+                len(pending),
+            )
+        out.update(
+            _match_once(pending, resume_text, role=role, api_key=key)
+        )
+        pending = [v for v in pending if v.hh_id not in out]
+
+    if pending:
+        logger.warning(
+            "LLM не вернул решения для {} id — оставляю без решения",
+            [v.hh_id for v in pending],
+        )
+
+    logger.info(
+        "LLM итог: suitable={} reject={} нет ответа={}",
+        sum(1 for d in out.values() if d.accepted),
+        sum(1 for d in out.values() if not d.accepted),
+        len(pending),
+    )
+    return out
+
+
+def _match_once(
+    vacancies: Sequence[Vacancy],
+    resume_text: str,
+    *,
+    role: str,
+    api_key: str,
+) -> dict[str, MatchDecision]:
+    """Один запрос к LLM. В ответе только те id, которые модель вернула."""
     payload_vacancies = [
         {
             "hh_id": v.hh_id,
@@ -118,7 +160,7 @@ def match_vacancies_batch(
         resp = client.post(
             url,
             headers={
-                "Authorization": f"Bearer {key}",
+                "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
             },
             json=body,
@@ -174,18 +216,6 @@ def match_vacancies_batch(
             reason,
         )
 
-    missing = [v.hh_id for v in vacancies if v.hh_id not in out]
-    if missing:
-        logger.warning(
-            "LLM не вернул решения для {} id — оставляю без решения", missing
-        )
-
-    logger.info(
-        "LLM итог: suitable={} reject={} нет ответа={}",
-        sum(1 for d in out.values() if d.accepted),
-        sum(1 for d in out.values() if not d.accepted),
-        len(missing),
-    )
     return out
 
 
