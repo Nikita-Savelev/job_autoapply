@@ -1,17 +1,15 @@
 #!/usr/bin/env python3
 """CLI чата HH.
 
-По умолчанию — мониторинг: первые 3 страницы списка, open только при новом
-чате или смене превью; LLM → delay → авто-«Отправить» → verify → БД.
+Стандартный запуск (без флагов режима): догон ленты сверху, пока не встретятся
+N чатов подряд, которые уже есть в БД, затем мониторинг первых страниц в цикле.
 
 Примеры:
-  python run_chat.py --loop --debug              # мониторинг в цикле
+  python run_chat.py --debug                     # догон до 5 в БД, затем мониторинг
+  python run_chat.py --loop --debug              # только мониторинг в цикле
   python run_chat.py --once --debug              # один проход monitor
-  python run_chat.py --once --pages 5 --debug
   python run_chat.py --once --force --debug      # полный список (редко)
   python run_chat.py --once --chat-id 5649719078 --fast --debug
-  python run_chat.py --once --manual-send
-  python run_chat.py --once --dry-run
 """
 
 from __future__ import annotations
@@ -19,6 +17,7 @@ from __future__ import annotations
 import argparse
 import sys
 import time
+from dataclasses import replace
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -53,6 +52,7 @@ def _cfg_from_args(args: argparse.Namespace) -> SweepConfig:
         step_enter=bool(args.step),
         force_full_sweep=bool(args.force),
         monitor_pages=max(1, int(args.pages)),
+        known_in_db_streak=0,
     )
 
 
@@ -68,7 +68,14 @@ def main() -> int:
     parser.add_argument(
         "--loop",
         action="store_true",
-        help="Цикл: monitor → sleep → снова",
+        help="Только мониторинг в цикле, без догоняющего прогона",
+    )
+    parser.add_argument(
+        "--known-streak",
+        type=int,
+        default=5,
+        metavar="N",
+        help="Стоп догона после N чатов подряд, уже лежащих в БД (по умолчанию 5)",
     )
     parser.add_argument(
         "--pages",
@@ -111,14 +118,20 @@ def main() -> int:
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
 
-    if not args.once and not args.loop and not args.chat_id:
-        parser.error("Укажи --once и/или --chat-id (или --loop)")
+    standard = not args.once and not args.loop and not args.chat_id and not args.force
 
     load_env()
     setup_logging(debug=args.debug)
     cfg = _cfg_from_args(args)
+    if standard:
+        cfg = replace(cfg, known_in_db_streak=max(1, int(args.known_streak)))
 
-    mode = "force-sweep" if cfg.force_full_sweep else f"monitor/{cfg.monitor_pages}p"
+    if cfg.force_full_sweep:
+        mode = "force-sweep"
+    elif cfg.known_in_db_streak > 0:
+        mode = f"catch-up/{cfg.known_in_db_streak}"
+    else:
+        mode = f"monitor/{cfg.monitor_pages}p"
     logger.info(
         "chat {}: dry_run={} fast={} manual_send={} step_enter={} "
         "pause={:.1f}s sleep={:.0f}s",
@@ -146,12 +159,12 @@ def main() -> int:
     driver = create_driver()
     code = 0
 
-    def one_pass() -> int:
+    def one_pass(pass_cfg: SweepConfig) -> int:
         result = run_chat_cycle(
             driver,
-            dry_run=cfg.dry_run,
+            dry_run=pass_cfg.dry_run,
             chat_id=args.chat_id,
-            cfg=cfg,
+            cfg=pass_cfg,
         )
         logger.info(
             "pass: seen={} created={} awaiting_us={} drafted={} sent={} "
@@ -172,16 +185,24 @@ def main() -> int:
         return 1 if result.errors else 0
 
     try:
-        if args.loop:
+        if standard:
+            logger.info(
+                "догон ленты: стоп после {} чатов подряд уже в БД, затем мониторинг",
+                cfg.known_in_db_streak,
+            )
+            code = one_pass(cfg)
+            cfg = replace(cfg, known_in_db_streak=0)
+            logger.info("догон закончен, дальше мониторинг / {} стр.", cfg.monitor_pages)
+        if standard or args.loop:
             while True:
-                code = one_pass()
+                code = one_pass(cfg)
                 logger.info(
                     "sleep {:.0f}s до следующего прохода",
                     cfg.sleep_after_sweep_sec,
                 )
                 time.sleep(cfg.sleep_after_sweep_sec)
         else:
-            code = one_pass()
+            code = one_pass(cfg)
     finally:
         set_run_context(store=None, resume_text="", dumper=None)
         try:

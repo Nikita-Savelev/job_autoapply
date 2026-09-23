@@ -29,6 +29,7 @@ from config import pause_between_actions_sec
 
 class SweepStopReason(StrEnum):
     STREAK = "streak_awaiting_them"
+    KNOWN_IN_DB = "known_in_db"
     LIST_END = "list_end"
     LIMIT = "limit"
     SINGLE = "single_chat"
@@ -55,6 +56,8 @@ class SweepConfig:
     step_enter: bool = False
     # True = полный sweep без stop по streak/status; превью без изменений всё равно skip
     force_full_sweep: bool = False
+    # Догоняющий прогон: стоп после N чатов подряд, которые уже были в БД. 0 = выкл.
+    known_in_db_streak: int = 0
     # monitor: сколько «страниц» списка (viewport + скролл) смотреть сверху
     monitor_pages: int = 3
 
@@ -166,7 +169,7 @@ def run_chat_cycle(
         _process_chat_id(driver, chat_id, result=result, cfg=cfg)
         return result
 
-    if cfg.force_full_sweep:
+    if cfg.force_full_sweep or cfg.known_in_db_streak > 0:
         return run_list_sweep(driver, cfg=cfg, result=result)
     return run_list_monitor(driver, cfg=cfg, result=result)
 
@@ -284,6 +287,7 @@ def run_list_sweep(
 
     result = result or ChatCycleResult()
     streak = 0
+    known_streak = 0
     seen_ids: set[str] = set()
 
     show_banner(driver, "Sweep: список чатов")
@@ -314,6 +318,32 @@ def run_list_sweep(
                         prev_preview = row.last_message_preview
                 except Exception:  # noqa: BLE001
                     prev_preview = None
+
+            # Догон: пять подряд уже в БД — дальше история, её заберёт мониторинг.
+            if cfg.known_in_db_streak > 0 and not cfg.force_full_sweep:
+                existed = _thread_exists(card.chat_id)
+                if existed:
+                    known_streak += 1
+                    result.streak_hits = known_streak
+                    logger.info(
+                        "chat {}: уже в БД {}/{}",
+                        card.chat_id,
+                        known_streak,
+                        cfg.known_in_db_streak,
+                    )
+                    if known_streak >= cfg.known_in_db_streak:
+                        result.stop_reason = SweepStopReason.KNOWN_IN_DB
+                        show_banner(
+                            driver,
+                            f"Stop: {known_streak} подряд уже в БД",
+                        )
+                        logger.info(
+                            "sweep stop: {} подряд уже в БД",
+                            known_streak,
+                        )
+                        return result
+                    continue
+                known_streak = 0
 
             known = _load_or_create_thread(card, result=result)
 
@@ -393,6 +423,15 @@ def run_list_sweep(
     if result.stop_reason is None:
         result.stop_reason = SweepStopReason.LIST_END
     return result
+
+
+def _thread_exists(chat_id: str) -> bool:
+    if _RUN_STORE is None:
+        return False
+    try:
+        return _RUN_STORE.get_thread(chat_id) is not None
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def _norm_preview(text: str | None) -> str:

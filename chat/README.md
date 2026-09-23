@@ -8,6 +8,9 @@
 Из `job_search/hh_autoapply/` (нужны Postgres, `.env` с LLM, залогиненный Chrome-профиль):
 
 ```bash
+# стандарт: догон до 5 чатов подряд уже в БД, затем мониторинг
+HH_PAUSE_SEC=1 .venv/bin/python run_chat.py --fast --debug
+
 # один прогон списка (ручной «Отправить» + Enter в терминале)
 .venv/bin/python run_chat.py --once --debug
 
