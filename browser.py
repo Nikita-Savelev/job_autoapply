@@ -26,16 +26,8 @@ _BLOCKED_IMAGE_URLS = (
 )
 
 
-def create_driver(
-    *,
-    headless: bool = False,
-    background: bool = True,
-) -> webdriver.Chrome:
-    """Открыть Chrome с отдельным профилем под hh.ru.
-
-    background=True — браузер без окна на экране.
-    Для входа в аккаунт нужен background=False.
-    """
+def create_driver(*, headless: bool = False) -> webdriver.Chrome:
+    """Открыть Chrome с отдельным профилем под hh.ru."""
     PROFILE_DIR.mkdir(parents=True, exist_ok=True)
 
     options = Options()
@@ -53,7 +45,7 @@ def create_driver(
             "profile.default_content_setting_values.images": 1,
         },
     )
-    if headless or background:
+    if headless:
         options.add_argument("--headless=new")
         logger.info("Chrome без окна на экране")
 

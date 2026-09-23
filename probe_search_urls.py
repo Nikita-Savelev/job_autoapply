@@ -259,7 +259,7 @@ def main(argv: list[str] | None = None) -> int:
 
     resume = load_resume_text()
     store = VacancyStore(pg_conninfo())
-    driver = create_driver(headless=False, background=False)
+    driver = create_driver(headless=False)
     results: list[ProbeResult] = []
     try:
         logger.info(

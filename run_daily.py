@@ -120,7 +120,7 @@ def main(argv: list[str] | None = None) -> int:
         logger.error("Postgres недоступен: {}\nПодними: docker compose up -d", exc)
         return 1
 
-    driver = create_driver(headless=args.headless, background=not args.foreground)
+    driver = create_driver(headless=args.headless or not args.foreground)
     try:
         stats = AutoApplyPipeline(
             driver,

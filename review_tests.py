@@ -142,7 +142,7 @@ def main(argv: list[str] | None = None) -> int:
             "REVIEW: финальную кнопку не жмём — проверь форму вручную."
         )
 
-    driver = create_driver(headless=False, background=False)
+    driver = create_driver(headless=False)
     driver.get(HH_BASE)
     try:
         total = len(REVIEW_VACANCIES)
