@@ -164,24 +164,14 @@ class AutoApplyPipeline:
                 pages_label,
             )
 
-            cards = scrape_search_page(self.driver, dumper=self.dumper)
-            stats.scraped += len(cards)
-            stats.notes.append(f"стр.{page_no}: карточек={len(cards)}")
-
+            seen_on_page: set[str] = set()
             page_new = 0
-            for card in cards:
-                saved = self.store.upsert_from_search(card)
-                stats.upserted += 1
-                logger.debug(
-                    "upsert id={} status={} title={!r}",
-                    saved.hh_id,
-                    saved.status.value,
-                    saved.title,
-                )
-                if saved.status == VacancyStatus.NEW:
-                    page_new += 1
-
-            self._process_queue(stats, page_new=page_new)
+            for _pass in range(1, 5):
+                skipped_before = stats.skipped
+                page_new += self._collect_search_page(stats, seen_on_page)
+                self._process_queue(stats, page_new=page_new)
+                if stats.skipped == skipped_before:
+                    break
 
             if stats.applied >= self.max_applies:
                 logger.info(
@@ -223,6 +213,60 @@ class AutoApplyPipeline:
             stats.errors,
         )
         return stats
+
+    def _collect_search_page(self, stats: PipelineStats, seen: set[str]) -> int:
+        """Прокрутить выдачу, записать карточки, скрыть уже скипнутые.
+
+        После скрытия HH может дорисовать новые карточки в тот же список.
+        `seen` — id, уже учтённые на этой странице, чтобы не считать их дважды.
+        """
+        page_new = 0
+        for _round in range(1, 5):
+            cards = scrape_search_page(self.driver, dumper=self.dumper)
+            fresh = [c for c in cards if c.hh_id not in seen]
+            if not fresh:
+                if not seen:
+                    stats.notes.append(f"стр.{stats.pages}: карточек=0")
+                break
+            hid = 0
+            for card in fresh:
+                seen.add(card.hh_id)
+                stats.scraped += 1
+                saved = self.store.upsert_from_search(card)
+                stats.upserted += 1
+                logger.debug(
+                    "upsert id={} status={} title={!r}",
+                    saved.hh_id,
+                    saved.status.value,
+                    saved.title,
+                )
+                if saved.status == VacancyStatus.NEW:
+                    page_new += 1
+                elif saved.status == VacancyStatus.SKIPPED and self._hide_on_serp(
+                    card.hh_id
+                ):
+                    hid += 1
+            note = f"стр.{stats.pages}: карточек={len(fresh)}"
+            if hid:
+                note += f" скрыто={hid}"
+            stats.notes.append(note)
+            if hid == 0:
+                break
+            logger.info(
+                "Скрыто уже скипнутых на выдаче: {}, добираем карточки", hid
+            )
+        return page_new
+
+    def _hide_on_serp(self, hh_id: str) -> bool:
+        if self.dry_run:
+            return False
+        try:
+            return actions.hide_vacancy_on_serp(
+                self.driver, hh_id, pause_sec=self.pause
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Не удалось скрыть {} на выдаче: {}", hh_id, exc)
+            return False
 
     def _process_queue(self, stats: PipelineStats, *, page_new: int) -> None:
         """Обработать NEW/ERROR из БД на текущей итерации страницы."""
@@ -317,9 +361,8 @@ class AutoApplyPipeline:
             stats.notes.append(f"skip {hh_id}: {reason}")
             return
 
+        self._hide_on_serp(hh_id)
         try:
-            logger.debug("hide_vacancy_on_serp({}) — пока stub, только БД", hh_id)
-            # hide на сайте пока не реализован — только статус в БД
             self.store.mark(hh_id, VacancyStatus.SKIPPED, skip_reason=reason)
             stats.skipped += 1
             stats.notes.append(f"skip {hh_id}: {reason}")
@@ -332,7 +375,6 @@ class AutoApplyPipeline:
                 error_message=str(exc),
             )
             stats.errors += 1
-        # паузу не делаем: скип только в БД, без кликов по UI
 
     def _apply(self, hh_id: str, stats: PipelineStats) -> None:
         vac = self.store.get(hh_id)

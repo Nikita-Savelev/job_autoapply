@@ -32,12 +32,46 @@ def open_search(
     logger.debug("URL после перехода: {}", driver.current_url)
 
 
+def _scroll_search_results(driver: WebDriver) -> None:
+    """Докрутить выдачу, пока не появятся все карточки страницы.
+
+    HH сначала рисует часть списка (часто ~20) и догружает остальные при прокрутке.
+    """
+    import time
+
+    last = -1
+    stable = 0
+    for _ in range(25):
+        cards = driver.find_elements(By.CSS_SELECTOR, sel.SEARCH_VACANCY_CARDS)
+        n = len(cards)
+        if n >= 100:
+            logger.info("Выдача прокручена: карточек {}", n)
+            return
+        if n == last:
+            stable += 1
+            if stable >= 3:
+                logger.info("Выдача прокручена: карточек {} (больше не растёт)", n)
+                return
+        else:
+            stable = 0
+            last = n
+        if cards:
+            driver.execute_script(
+                "arguments[0].scrollIntoView({block: 'end'});", cards[-1]
+            )
+        else:
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+        time.sleep(0.45)
+    logger.info("Выдача: стоп прокрутки, карточек {}", max(last, 0))
+
+
 def scrape_search_page(
     driver: WebDriver,
     *,
     dumper: PageDumper | None = None,
 ) -> list[Vacancy]:
     """Собрать карточки с текущей страницы выдачи."""
+    _scroll_search_results(driver)
     cards = driver.find_elements(By.CSS_SELECTOR, sel.SEARCH_VACANCY_CARDS)
     logger.info("Найдено DOM-карточек: {} (селектор {})", len(cards), sel.SEARCH_VACANCY_CARDS)
     result: list[Vacancy] = []

@@ -11,7 +11,8 @@ SEARCH_VACANCY_COMPANY_FALLBACK = "[data-qa='vacancy-serp__vacancy-employer']"
 SEARCH_VACANCY_SALARY = "[data-qa='vacancy-serp__compensation']"
 SEARCH_VACANCY_ADDRESS = "[data-qa='vacancy-serp__vacancy-address']"
 SEARCH_VACANCY_SNIPPET = "[data-qa='vacancy-serp__vacancy_snippet']"
-SEARCH_HIDE_BUTTON = "[data-qa='vacancy__blacklist-show-add']"
+SEARCH_HIDE_BUTTON = "button[data-qa='vacancy__blacklist-show-add']"
+SEARCH_HIDE_VACANCY = "button[data-qa='vacancy__blacklist-menu-add-vacancy']"
 # На выдаче «Откликнуться» — ссылка
 SEARCH_RESPONSE_BUTTON = "[data-qa='vacancy-serp__vacancy_response']"
 # Пагинация поиска

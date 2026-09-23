@@ -214,10 +214,66 @@ def _is_response_letter_modal(driver: WebDriver) -> bool:
     )
 
 
-def hide_vacancy_on_serp(driver: WebDriver, hh_id: str) -> None:
-    raise ActionNotImplementedError(
-        f"hide_vacancy_on_serp({hh_id}): доработать на живой выдаче"
-    )
+def _serp_card(driver: WebDriver, hh_id: str) -> WebElement | None:
+    needle = f"/vacancy/{hh_id}"
+    for card in driver.find_elements(By.CSS_SELECTOR, sel.SEARCH_VACANCY_CARDS):
+        try:
+            href = (
+                card.find_element(By.CSS_SELECTOR, sel.SEARCH_VACANCY_TITLE).get_attribute(
+                    "href"
+                )
+                or ""
+            )
+        except Exception:
+            continue
+        if needle in href:
+            return card
+    return None
+
+
+def hide_vacancy_on_serp(
+    driver: WebDriver,
+    hh_id: str,
+    *,
+    pause_sec: float = 0.0,
+) -> bool:
+    """Скрыть вакансию с выдачи: глаз в карточке → «Скрыть эту вакансию».
+
+    False — карточки нет на текущей странице или меню не открылось.
+    Компанию целиком не скрываем.
+    """
+    card = _serp_card(driver, hh_id)
+    if card is None:
+        logger.info("Скрыть {}: карточки нет на текущей выдаче", hh_id)
+        return False
+    try:
+        eye = card.find_element(By.CSS_SELECTOR, sel.SEARCH_HIDE_BUTTON)
+    except Exception:
+        logger.warning("Скрыть {}: нет кнопки «Скрыть»", hh_id)
+        return False
+
+    _click(driver, eye, pause_sec=pause_sec, label=f"меню скрытия {hh_id}")
+    try:
+        item = WebDriverWait(driver, 5).until(
+            EC.element_to_be_clickable((By.CSS_SELECTOR, sel.SEARCH_HIDE_VACANCY))
+        )
+    except TimeoutException:
+        logger.warning("Скрыть {}: меню не открылось", hh_id)
+        try:
+            driver.find_element(By.TAG_NAME, "body").send_keys(Keys.ESCAPE)
+        except Exception:
+            pass
+        return False
+
+    _click(driver, item, pause_sec=pause_sec, label=f"Скрыть эту вакансию {hh_id}")
+    try:
+        WebDriverWait(driver, 4).until(
+            EC.invisibility_of_element_located((By.CSS_SELECTOR, sel.SEARCH_HIDE_VACANCY))
+        )
+    except TimeoutException:
+        pass
+    logger.info("Скрыта на HH {}", hh_id)
+    return True
 
 
 def detect_response_button_state(driver: WebDriver) -> ResponseButtonState:
