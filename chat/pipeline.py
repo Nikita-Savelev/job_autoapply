@@ -216,10 +216,10 @@ def run_list_monitor(
 
         known = _load_or_create_thread(card, result=result)
 
-        # превью не менялось → не открываем
-        if prev_preview is not None and _previews_match(
-            card.last_message_preview, prev_preview
-        ):
+        # превью не менялось → не открываем.
+        # awaiting_us — исключение: бот анкеты часто повторяет тот же текст,
+        # и вопрос к нам иначе остаётся без ответа.
+        if _skip_unchanged_preview(known, card.last_message_preview, prev_preview):
             logger.debug(
                 "chat {}: preview без изменений — skip ({!r})",
                 known.chat_id,
@@ -319,9 +319,10 @@ def run_list_sweep(
 
             from chat.classify import is_hh_reject_badge
 
-            # превью не менялось → в чат не заходим (даже с --force)
-            if prev_preview is not None and _previews_match(
-                card.last_message_preview, prev_preview
+            # превью не менялось → в чат не заходим (даже с --force).
+            # awaiting_us всё равно открываем: повтор того же вопроса.
+            if _skip_unchanged_preview(
+                known, card.last_message_preview, prev_preview
             ):
                 logger.info(
                     "chat {}: preview без изменений — skip open ({!r})",
@@ -397,6 +398,24 @@ def run_list_sweep(
 def _norm_preview(text: str | None) -> str:
     t = (text or "").replace("\xa0", " ").replace("&nbsp;", " ")
     return " ".join(t.split()).strip().lower()
+
+
+def _skip_unchanged_preview(
+    known: ChatThread,
+    list_preview: str | None,
+    db_preview: str | None,
+) -> bool:
+    """True — превью то же и ответа от нас не ждут."""
+    if db_preview is None or not _previews_match(list_preview, db_preview):
+        return False
+    if known.status == ChatThreadStatus.AWAITING_US and not known.bot_paused:
+        logger.info(
+            "chat {}: preview тот же, но awaiting_us — open ({!r})",
+            known.chat_id,
+            (list_preview or "")[:60],
+        )
+        return False
+    return True
 
 
 def _previews_match(list_preview: str | None, db_preview: str | None) -> bool:

@@ -31,6 +31,16 @@ from matcher.test_answers import load_hr_answer_context
 NO_REPLY_TOKEN = "NO_REPLY"
 REJECT_TOKEN = "REJECT"
 
+# Лестница ЗП в чате: 1-й вопрос, повторное уточнение, дальше — человек.
+_SALARY_FIRST = (
+    "Я только недавно вышел на рынок и пока только присматриваюсь "
+    "к требованиям и актуальным вилкам. Но я открыт к любым предложениям)"
+)
+_SALARY_SECOND = (
+    "Честно, я бы и сам рад назвать цифру, но такой в уме пока нет. "
+    "Если подскажете вилку по вакансии, скажу сразу, сойдёмся или нет."
+)
+
 _CONTEXT_DIR = Path(__file__).resolve().parents[2] / "context"
 
 
@@ -113,6 +123,10 @@ def compose_reply(
             reason="empty_inbound",
             escalate_reason=EscalateReason.BOT_STUCK,
         )
+
+    salary = _salary_reply(thread)
+    if salary is not None:
+        return salary
 
     tone = "cold" if intent == ChatIntent.COLD_OFFER else "screening"
     try:
@@ -222,6 +236,47 @@ def compose_reply(
         kind=ChatActionKind.REPLY,
         text=text,
         reason=f"intent={intent.value};tone={tone}",
+        delay_sec=compute_reply_delay(text),
+    )
+
+
+def _salary_reply(thread: ChatThread) -> ChatDraft | None:
+    """Фиксированные реплики про ЗП. LLM сюда не пускаем: он сразу берёт вторую."""
+    from matcher.test_answers import _is_salary_question
+
+    last = thread.last_inbound_text() or ""
+    if not _is_salary_question(last):
+        return None
+
+    sent_first = False
+    sent_second = False
+    for msg in thread.messages:
+        if msg.direction != MessageDirection.OUT:
+            continue
+        body = msg.text or ""
+        if (
+            "только недавно вышел на рынок" in body
+            or "открыт к любым предложениям" in body
+        ):
+            sent_first = True
+        if "рад назвать цифру" in body or "такой в уме" in body:
+            sent_second = True
+
+    if sent_second:
+        logger.info("chat {}: зарплата, третий заход → эскалация", thread.chat_id)
+        return ChatDraft(
+            kind=ChatActionKind.ESCALATE,
+            reason="salary_third_ask",
+            escalate_reason=EscalateReason.OTHER,
+        )
+
+    text = _SALARY_SECOND if sent_first else _SALARY_FIRST
+    step = "second" if sent_first else "first"
+    logger.info("chat {}: зарплата, шаг {}", thread.chat_id, step)
+    return ChatDraft(
+        kind=ChatActionKind.REPLY,
+        text=text,
+        reason=f"salary_{step}",
         delay_sec=compute_reply_delay(text),
     )
 
