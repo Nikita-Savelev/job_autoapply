@@ -33,7 +33,7 @@ def create_driver(
 ) -> webdriver.Chrome:
     """Открыть Chrome с отдельным профилем под hh.ru.
 
-    background=True — окно не забирает фокус при новых вкладках.
+    background=True — браузер без окна на экране.
     Для входа в аккаунт нужен background=False.
     """
     PROFILE_DIR.mkdir(parents=True, exist_ok=True)
@@ -53,24 +53,12 @@ def create_driver(
             "profile.default_content_setting_values.images": 1,
         },
     )
-    if headless:
+    if headless or background:
         options.add_argument("--headless=new")
-    elif background:
-        # Окно уходит под другие, но страница должна продолжать рисоваться.
-        options.add_argument("--disable-renderer-backgrounding")
-        options.add_argument("--disable-backgrounding-occluded-windows")
-        options.add_argument("--disable-background-timer-throttling")
+        logger.info("Chrome без окна на экране")
 
     # Selenium Manager подтянет chromedriver сам (Selenium 4.6+)
     driver = webdriver.Chrome(options=options)
-    if background and not headless:
-        try:
-            from browser_focus import hold_chrome_in_background
-
-            hold_chrome_in_background(driver.service.process.pid)
-            logger.info("Chrome остаётся на заднем плане и не забирает фокус")
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Не удалось удержать Chrome на заднем плане: {}", exc)
     _block_non_captcha_images(driver)
     try:
         from hh.highlight import set_visual_driver
@@ -99,12 +87,6 @@ def _block_non_captcha_images(driver: WebDriver) -> None:
 
 def quit_driver(driver: webdriver.Chrome | None) -> None:
     """Закрыть браузер и отвязать баннер логов."""
-    try:
-        from browser_focus import release_chrome_focus
-
-        release_chrome_focus()
-    except Exception:  # noqa: BLE001
-        pass
     try:
         from hh.highlight import set_visual_driver
 

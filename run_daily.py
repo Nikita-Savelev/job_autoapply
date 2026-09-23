@@ -85,7 +85,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--foreground",
         action="store_true",
-        help="Показывать окно Chrome поверх других программ",
+        help="Показать окно Chrome на экране",
     )
     args = parser.parse_args(argv)
 
