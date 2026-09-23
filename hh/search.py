@@ -6,6 +6,7 @@ import re
 from urllib.parse import urlparse
 
 from loguru import logger
+from selenium.common.exceptions import StaleElementReferenceException
 from selenium.webdriver.common.by import By
 from selenium.webdriver.remote.webdriver import WebDriver
 
@@ -32,18 +33,35 @@ def open_search(
     logger.debug("URL после перехода: {}", driver.current_url)
 
 
+_SCROLL_JS = """
+const cards = document.querySelectorAll(arguments[0]);
+if (cards.length) {
+  cards[cards.length - 1].scrollIntoView({block: 'end'});
+} else {
+  window.scrollTo(0, document.body.scrollHeight);
+}
+return cards.length;
+"""
+
+
 def _scroll_search_results(driver: WebDriver) -> None:
     """Докрутить выдачу, пока не появятся все карточки страницы.
 
     HH сначала рисует часть списка (часто ~20) и догружает остальные при прокрутке.
+    Карточки ищутся внутри скрипта: ссылка из Python устаревает, когда список перерисовывается.
     """
     import time
 
     last = -1
     stable = 0
     for _ in range(25):
-        cards = driver.find_elements(By.CSS_SELECTOR, sel.SEARCH_VACANCY_CARDS)
-        n = len(cards)
+        try:
+            n = int(
+                driver.execute_script(_SCROLL_JS, sel.SEARCH_VACANCY_CARDS) or 0
+            )
+        except StaleElementReferenceException:
+            time.sleep(0.45)
+            continue
         if n >= 100:
             logger.info("Выдача прокручена: карточек {}", n)
             return
@@ -55,12 +73,6 @@ def _scroll_search_results(driver: WebDriver) -> None:
         else:
             stable = 0
             last = n
-        if cards:
-            driver.execute_script(
-                "arguments[0].scrollIntoView({block: 'end'});", cards[-1]
-            )
-        else:
-            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
         time.sleep(0.45)
     logger.info("Выдача: стоп прокрутки, карточек {}", max(last, 0))
 
