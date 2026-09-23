@@ -122,6 +122,7 @@ CAPTCHA_INPUT_NAME = "input[name='captchaText']"
 CAPTCHA_IMG_SRC = "img[src*='/captcha/picture']"
 CAPTCHA_RENEW = "[data-qa='captcha-renew-text']"
 CAPTCHA_ERROR = "[data-qa='account-captcha-error']"
+CAPTCHA_SUBMIT = "button[type='submit']"
 CAPTCHA_MARKERS = (
     CAPTCHA_PICTURE,
     CAPTCHA_INPUT,
