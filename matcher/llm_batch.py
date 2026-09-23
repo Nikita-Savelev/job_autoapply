@@ -40,7 +40,13 @@ SYSTEM_PROMPT = """\
   инженер по автоматизации тестирования, Automation QA, Fullstack QA.
   Кандидат не тестировщик. suitable=false, даже если стек Python.
   «Автоматизация» без слова про тесты (боты, n8n, процессы) — это не QA, можно да.
-- Fullstack на Python (разработка) — скорее да; Fullstack с упором на React/Vue без Python — нет.
+- Fullstack на Python (разработка) — скорее да, даже если рядом Vue, React или Next.
+  Fullstack с упором на React/Vue без Python — нет.
+- «Senior», «Middle», «Старший», «Ведущий» в названии разработчика — это грейд, не руководство.
+  Senior Python, Старший Python-разработчик, Ведущий фуллстек (Python),
+  Fullstack с Python в названии — suitable=true.
+  «Не hands-on» ставь только если в названии прямо Team Lead, Tech Lead, тимлид,
+  руководитель, директор или Head.
 - Если сомневаешься по одному названию — suitable=false и короткая reason.
 
 Ответ СТРОГО одним JSON-объектом без markdown:
@@ -149,6 +155,15 @@ def match_vacancies_batch(
                 hh_id,
                 title,
             )
+        elif not suitable and _is_hands_on_python_title(title):
+            suitable = True
+            score = max(score, 0.75)
+            reason = "Senior/ведущий Python — hands-on разработка"
+            logger.info(
+                "LLM override {} {!r}: suitable=True (грейд, не руководство)",
+                hh_id,
+                title,
+            )
         out[hh_id] = MatchDecision(accepted=suitable, score=score, reason=reason)
         logger.info(
             "LLM decision {} {!r}: suitable={} score={} reason={}",
@@ -187,6 +202,37 @@ _QA_TITLE_RE = re.compile(
 def _is_qa_title(title: str) -> bool:
     """Название про тестирование, а не про разработку/автоматизацию процессов."""
     return bool(_QA_TITLE_RE.search(title or ""))
+
+
+_LEAD_OR_JUNIOR_RE = re.compile(
+    r"("
+    r"team\s*lead|tech\s*lead|тимлид|руководитель|директор|\bhead\b|"
+    r"junior|стажер|стажёр|младш|преподаватель|педагог"
+    r")",
+    re.IGNORECASE,
+)
+
+# Senior / ведущий / fullstack с Python — грейд разработчика, не отказ «не hands-on».
+_HANDS_ON_PY_RE = re.compile(
+    r"("
+    r"(senior|middle|\bведущ\w*|\bстарш\w*).{0,90}(python|django|fastapi)"
+    r"|"
+    r"(python|django|fastapi).{0,90}(senior|middle|\bведущ\w*|\bстарш\w*)"
+    r"|"
+    r"(fullstack|фуллстек|full-stack|full\s*stack).{0,90}(python|django|fastapi)"
+    r"|"
+    r"(python|django|fastapi).{0,90}(fullstack|фуллстек|full-stack|full\s*stack)"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def _is_hands_on_python_title(title: str) -> bool:
+    """Python-разработчик уровня Senior/ведущий/fullstack, без роли руководителя и QA."""
+    text = title or ""
+    if _is_qa_title(text) or _LEAD_OR_JUNIOR_RE.search(text):
+        return False
+    return bool(_HANDS_ON_PY_RE.search(text))
 
 
 def _parse_json_content(content: str) -> dict:

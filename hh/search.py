@@ -87,7 +87,76 @@ def _node_text(card, css: str) -> tuple[str, str]:
     return text, href
 
 
+_CARDS_JS = """
+const textOf = (root, css) => {
+  if (!root) return '';
+  const el = root.querySelector(css);
+  return el ? (el.textContent || '').replace(/\\s+/g, ' ').trim() : '';
+};
+const cards = document.querySelectorAll(arguments[0]);
+const out = [];
+for (const card of cards) {
+  const titleA = card.querySelector(arguments[1]);
+  const href = titleA ? (titleA.href || titleA.getAttribute('href') || '') : '';
+  let title = textOf(card, arguments[2]);
+  if (!title && titleA) title = (titleA.textContent || '').replace(/\\s+/g, ' ').trim();
+  const company = textOf(card, arguments[3]) || textOf(card, arguments[4]);
+  const salary = textOf(card, arguments[5]);
+  const address = textOf(card, arguments[6]);
+  const snippet = textOf(card, arguments[7]) || address;
+  out.push({title, href, company, salary, snippet});
+}
+return out;
+"""
+
+
 def _parse_search_cards(driver: WebDriver) -> tuple[list[Vacancy], int]:
+    """Один снимок DOM. Поэлементный Selenium теряет текст, пока список дорисовывается."""
+    try:
+        raw = driver.execute_script(
+            _CARDS_JS,
+            sel.SEARCH_VACANCY_CARDS,
+            sel.SEARCH_VACANCY_TITLE,
+            sel.SEARCH_VACANCY_TITLE_TEXT,
+            sel.SEARCH_VACANCY_COMPANY,
+            sel.SEARCH_VACANCY_COMPANY_FALLBACK,
+            sel.SEARCH_VACANCY_SALARY,
+            sel.SEARCH_VACANCY_ADDRESS,
+            sel.SEARCH_VACANCY_SNIPPET,
+        )
+    except Exception as exc:
+        logger.warning("Снимок карточек через JS не удался: {}", exc)
+        raw = None
+    if not isinstance(raw, list):
+        return _parse_search_cards_selenium(driver)
+
+    result: list[Vacancy] = []
+    for i, item in enumerate(raw, start=1):
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title") or "").strip()
+        href = str(item.get("href") or "").strip()
+        hh_id = _extract_hh_id(href)
+        if not hh_id or not title:
+            logger.debug("Карточка #{}: пропуск (hh_id/title пусты)", i)
+            continue
+        company = str(item.get("company") or "").strip()
+        salary = str(item.get("salary") or "").strip()
+        snippet = str(item.get("snippet") or "").strip()
+        result.append(
+            Vacancy(
+                hh_id=hh_id,
+                title=title,
+                url=href.split("?")[0],
+                company=company or None,
+                salary=salary or None,
+                snippet=snippet or None,
+            )
+        )
+    return result, len(raw)
+
+
+def _parse_search_cards_selenium(driver: WebDriver) -> tuple[list[Vacancy], int]:
     cards = driver.find_elements(By.CSS_SELECTOR, sel.SEARCH_VACANCY_CARDS)
     result: list[Vacancy] = []
     for i, card in enumerate(cards, start=1):
@@ -101,7 +170,6 @@ def _parse_search_cards(driver: WebDriver) -> tuple[list[Vacancy], int]:
         if not hh_id or not title:
             logger.debug("Карточка #{}: пропуск (hh_id/title пусты)", i)
             continue
-
         company, _ = _node_text(card, sel.SEARCH_VACANCY_COMPANY)
         if not company:
             company, _ = _node_text(card, sel.SEARCH_VACANCY_COMPANY_FALLBACK)
@@ -110,7 +178,6 @@ def _parse_search_cards(driver: WebDriver) -> tuple[list[Vacancy], int]:
         snippet, _ = _node_text(card, sel.SEARCH_VACANCY_SNIPPET)
         if not snippet:
             snippet = address
-
         result.append(
             Vacancy(
                 hh_id=hh_id,
@@ -120,14 +187,6 @@ def _parse_search_cards(driver: WebDriver) -> tuple[list[Vacancy], int]:
                 salary=salary or None,
                 snippet=snippet or None,
             )
-        )
-        logger.debug(
-            "Карточка #{}: id={} title={!r} company={!r} salary={!r}",
-            i,
-            hh_id,
-            title,
-            company,
-            salary,
         )
     return result, len(cards)
 
@@ -141,25 +200,35 @@ def scrape_search_page(
     import time
 
     _scroll_search_results(driver)
-    result: list[Vacancy] = []
+    merged: dict[str, Vacancy] = {}
     dom_n = 0
     for attempt in range(1, 4):
-        result, dom_n = _parse_search_cards(driver)
+        parsed, dom_n = _parse_search_cards(driver)
+        for vac in parsed:
+            merged[vac.hh_id] = vac
         logger.info(
-            "Найдено DOM-карточек: {} разобрано: {} (попытка {})",
+            "Найдено DOM-карточек: {} разобрано: {} всего: {} (попытка {})",
             dom_n,
-            len(result),
+            len(parsed),
+            len(merged),
             attempt,
         )
-        if dom_n == 0 or len(result) >= max(1, int(dom_n * 0.5)):
+        if dom_n == 0 or len(merged) >= dom_n:
             break
         logger.warning(
             "Разобрано {} из {} карточек — жду и читаю страницу снова",
-            len(result),
+            len(merged),
             dom_n,
         )
         time.sleep(0.8)
         _scroll_search_results(driver)
+    result = list(merged.values())
+    if dom_n and len(result) < dom_n:
+        logger.warning(
+            "После повторов разобрано {} из {} DOM-карточек",
+            len(result),
+            dom_n,
+        )
 
     if not result:
         logger.warning("0 вакансий после парсинга — дамп HTML для правки селекторов")
