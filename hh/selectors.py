@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 # Список поиска
+SEARCH_RESULTS_TITLE = "[data-qa='title-container'] [data-qa='title']"
 SEARCH_VACANCY_CARDS = "[data-qa='vacancy-serp__vacancy']"
 SEARCH_VACANCY_TITLE = "[data-qa='serp-item__title']"
 SEARCH_VACANCY_TITLE_TEXT = "[data-qa='serp-item__title-text']"

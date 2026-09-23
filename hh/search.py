@@ -16,6 +16,46 @@ from hh import selectors as sel
 from hh.navigate import dump_current, go
 
 
+_FOUND_COUNT_RE = re.compile(
+    r"Найден\w*\s+([\d\s\u00a0\u202f]+)\s+ваканси",
+    re.IGNORECASE,
+)
+
+
+def parse_search_found_count(text: str) -> int | None:
+    """Число из «Найдено 1 870 вакансий». None — строка не про счётчик."""
+    raw = (text or "").replace("\xa0", " ").replace("\u202f", " ")
+    if "ничего не найдено" in raw.lower():
+        return 0
+    match = _FOUND_COUNT_RE.search(raw)
+    if not match:
+        return None
+    digits = re.sub(r"\D", "", match.group(1))
+    if not digits:
+        return None
+    return int(digits)
+
+
+def search_found_count(driver: WebDriver) -> int | None:
+    """Сколько вакансий HH показывает в заголовке выдачи, не только на страницах."""
+    try:
+        raw = driver.execute_script(
+            """
+            const title = document.querySelector(arguments[0]);
+            if (!title) return '';
+            const span = title.querySelector('span');
+            return (span ? span.textContent : title.textContent) || '';
+            """,
+            sel.SEARCH_RESULTS_TITLE,
+        )
+    except StaleElementReferenceException:
+        return None
+    count = parse_search_found_count(str(raw or ""))
+    if count is None and str(raw or "").strip():
+        logger.warning("Не разобрал счётчик выдачи: {!r}", str(raw)[:200])
+    return count
+
+
 def _extract_hh_id(url: str) -> str | None:
     path = urlparse(url).path
     m = re.search(r"/vacancy/(\d+)", path)

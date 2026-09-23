@@ -23,7 +23,12 @@ from hh.actions import (
 )
 from hh.captcha import CaptchaTimeout, resolve_captcha_if_present
 from hh.company import get_or_fetch_company
-from hh.search import go_next_search_page, open_search, scrape_search_page
+from hh.search import (
+    go_next_search_page,
+    open_search,
+    scrape_search_page,
+    search_found_count,
+)
 from hh.vacancy import scrape_vacancy_page, vacancy_closed_reason, vacancy_tab
 from matcher import match_vacancies_batch
 
@@ -48,11 +53,15 @@ class AutoApplyPipeline:
     По умолчанию и в --debug — реальные отклики.
     max_applies — лимит за прогон; дополнительно жёсткий дневной потолок
     HH_DAILY_APPLY_LIMIT (по умолчанию 200) по applied_at в БД.
-    Страницы и матчинг — без лимита (до конца выдачи / пока есть NEW).
+    Страницы и матчинг — без лимита. HH отдаёт не больше ~2000 карточек
+    за один проход; если в заголовке «Найдено N» ещё остались вакансии,
+    поиск открывается снова с первой страницы.
     """
 
     # Размер куска для LLM (не лимит обработки — все NEW всё равно проходят)
     _LLM_CHUNK = 50
+    # Сколько раз заново открывать первую страницу, пока счётчик выдачи падает
+    _MAX_SEARCH_SWEEPS = 40
 
     def __init__(
         self,
@@ -148,60 +157,113 @@ class AutoApplyPipeline:
         self._resume_text = resume_text
 
         page_no = 0
-        while True:
-            page_no += 1
-            if stats.applied >= self.max_applies:
+        for sweep in range(1, self._MAX_SEARCH_SWEEPS + 1):
+            found_before = search_found_count(self.driver)
+            if found_before == 0:
+                stats.notes.append("stop: в поиске 0 вакансий")
+                logger.info("В поиске 0 вакансий — стоп")
                 break
-            if self.max_pages is not None and page_no > self.max_pages:
-                stats.notes.append(f"stop: max_pages={self.max_pages}")
-                logger.info("Достигнут max_pages={} — стоп", self.max_pages)
-                break
-
-            stats.pages = page_no
             logger.info(
-                "=== Страница поиска {}/{} ===",
-                page_no,
-                pages_label,
+                "Круг {}: в поиске {} вакансий",
+                sweep,
+                found_before if found_before is not None else "?",
             )
 
-            seen_on_page: set[str] = set()
-            page_new = 0
-            for _pass in range(1, 5):
-                skipped_before = stats.skipped
-                page_new += self._collect_search_page(stats, seen_on_page)
-                self._process_queue(stats, page_new=page_new)
-                hid = self._hide_known_skips(seen_on_page)
-                if stats.skipped == skipped_before and hid == 0:
+            hit_limit = False
+            while True:
+                page_no += 1
+                if stats.applied >= self.max_applies:
+                    hit_limit = True
+                    break
+                if self.max_pages is not None and page_no > self.max_pages:
+                    stats.notes.append(f"stop: max_pages={self.max_pages}")
+                    logger.info("Достигнут max_pages={} — стоп", self.max_pages)
+                    hit_limit = True
                     break
 
-            if stats.applied >= self.max_applies:
+                stats.pages = page_no
                 logger.info(
-                    "Достигнут max_applies={} — останавливаем прогон",
-                    self.max_applies,
+                    "=== Страница поиска {}/{} ===",
+                    page_no,
+                    pages_label,
                 )
-                stats.notes.append(f"stop: max_applies={self.max_applies}")
+
+                seen_on_page: set[str] = set()
+                page_new = 0
+                for _pass in range(1, 5):
+                    skipped_before = stats.skipped
+                    page_new += self._collect_search_page(stats, seen_on_page)
+                    self._process_queue(stats, page_new=page_new)
+                    hid = self._hide_known_skips(seen_on_page)
+                    if stats.skipped == skipped_before and hid == 0:
+                        break
+
+                if stats.applied >= self.max_applies:
+                    logger.info(
+                        "Достигнут max_applies={} — останавливаем прогон",
+                        self.max_applies,
+                    )
+                    stats.notes.append(f"stop: max_applies={self.max_applies}")
+                    hit_limit = True
+                    break
+
+                if page_new == 0:
+                    logger.info(
+                        "На странице {} нет NEW вакансий — листаем дальше",
+                        page_no,
+                    )
+                else:
+                    logger.info(
+                        "Страница {} обработана (NEW было {}), листаем дальше "
+                        "(applied={}/{})",
+                        page_no,
+                        page_new,
+                        stats.applied,
+                        self.max_applies,
+                    )
+
+                if not go_next_search_page(
+                    self.driver, dumper=self.dumper, pause_sec=self.pause
+                ):
+                    logger.info("Конец выдачи — следующей страницы нет")
+                    break
+
+            if hit_limit or self.dry_run:
+                break
+            if sweep >= self._MAX_SEARCH_SWEEPS:
+                stats.notes.append(f"stop: круги поиска={self._MAX_SEARCH_SWEEPS}")
+                logger.warning(
+                    "Достигнут предел кругов поиска {} — стоп",
+                    self._MAX_SEARCH_SWEEPS,
+                )
                 break
 
-            if page_new == 0:
-                logger.info(
-                    "На странице {} нет NEW вакансий — листаем дальше",
-                    page_no,
+            logger.info("Открываю поиск снова с первой страницы")
+            open_search(self.driver, self.search_url, dumper=self.dumper)
+            time.sleep(self.pause)
+            found_after = search_found_count(self.driver)
+            logger.info(
+                "После круга {} в поиске {} вакансий",
+                sweep,
+                found_after if found_after is not None else "?",
+            )
+            if found_after is None:
+                stats.notes.append("stop: не прочитан счётчик выдачи")
+                logger.warning("Счётчик «Найдено N» не прочитан — стоп")
+                break
+            if found_after <= 0:
+                stats.notes.append("stop: в поиске 0 вакансий")
+                logger.info("В поиске не осталось вакансий")
+                break
+            if found_before is not None and found_after >= found_before:
+                stats.notes.append(
+                    f"stop: счётчик не уменьшился {found_before}→{found_after}"
                 )
-            else:
-                logger.info(
-                    "Страница {} обработана (NEW было {}), листаем дальше "
-                    "(applied={}/{})",
-                    page_no,
-                    page_new,
-                    stats.applied,
-                    self.max_applies,
+                logger.warning(
+                    "Счётчик выдачи не уменьшился ({} → {}) — стоп",
+                    found_before,
+                    found_after,
                 )
-
-            if not go_next_search_page(
-                self.driver, dumper=self.dumper, pause_sec=self.pause
-            ):
-                stats.notes.append("stop: нет следующей страницы поиска")
-                logger.info("Конец выдачи — следующей страницы нет")
                 break
 
         logger.info(
