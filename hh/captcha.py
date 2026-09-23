@@ -196,18 +196,40 @@ def _submit_captcha_text(driver: WebDriver, answer: str) -> None:
         driver.execute_script("arguments[0].click();", button)
 
 
-def _wait_captcha_outcome(driver: WebDriver) -> str:
-    """ok — капча ушла; bad — ошибка или форма всё ещё на экране."""
+def _captcha_image_src(driver: WebDriver) -> str:
+    el = _captcha_image_el(driver)
+    if el is None:
+        return ""
+    try:
+        return (el.get_attribute("src") or "").strip()
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _wait_captcha_outcome(
+    driver: WebDriver,
+    *,
+    before_src: str,
+    before_err: str,
+) -> str:
+    """ok — капча ушла; bad — новая ошибка или сменилась картинка.
+
+    Текст ошибки с прошлой попытки сам по себе не считается провалом.
+    """
     deadline = time.time() + _RESULT_WAIT_SEC
     while time.time() < deadline:
         if not captcha_visible(driver):
             return "ok"
+        src = _captcha_image_src(driver)
         err = _captcha_error_text(driver)
-        if err:
+        src_changed = bool(src and before_src and src != before_src)
+        err_changed = bool(err and err != before_err)
+        if src_changed or err_changed:
             time.sleep(0.4)
             if not captcha_visible(driver):
                 return "ok"
-            logger.info("Капча не принята: {}", err)
+            if err:
+                logger.info("Капча не принята: {}", err)
             return "bad"
         time.sleep(0.4)
     if not captcha_visible(driver):
@@ -287,8 +309,15 @@ def resolve_captcha_if_present(
         logger.info("Капча: вставляю ответ, попытка {}/{}", attempt, _MAX_ATTEMPTS)
         if visual_enabled():
             show_banner(driver, f"Капча: отправляю попытку {attempt}")
+        before_src = _captcha_image_src(driver)
+        before_err = _captcha_error_text(driver)
         _submit_captcha_text(driver, answer)
-        if _wait_captcha_outcome(driver) == "ok":
+        if (
+            _wait_captcha_outcome(
+                driver, before_src=before_src, before_err=before_err
+            )
+            == "ok"
+        ):
             logger.info("Капча снята — продолжаю")
             if visual_enabled():
                 show_banner(driver, "Капча OK — продолжаю")
