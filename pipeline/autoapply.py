@@ -215,33 +215,46 @@ class AutoApplyPipeline:
         return stats
 
     def _collect_search_page(self, stats: PipelineStats, seen: set[str]) -> int:
-        """Прокрутить выдачу и записать карточки.
+        """Прокрутить выдачу, записать карточки, скрыть старые нерелевантные.
 
-        Уже виденные и уже с откликом не скрываем: с выдачи уходит только
-        свежий отказ как нерелевантной (`_skip`).
-        `seen` — id, уже учтённые на этой странице, чтобы не считать их дважды.
+        Скрываем только status=skipped. Уже с откликом и просто просмотренные
+        подходящие остаются. `seen` — id этой страницы, чтобы не считать дважды.
         """
         page_new = 0
-        cards = scrape_search_page(self.driver, dumper=self.dumper)
-        fresh = [c for c in cards if c.hh_id not in seen]
-        if not fresh:
-            if not seen:
-                stats.notes.append(f"стр.{stats.pages}: карточек=0")
-            return page_new
-        for card in fresh:
-            seen.add(card.hh_id)
-            stats.scraped += 1
-            saved = self.store.upsert_from_search(card)
-            stats.upserted += 1
-            logger.debug(
-                "upsert id={} status={} title={!r}",
-                saved.hh_id,
-                saved.status.value,
-                saved.title,
+        for _round in range(1, 5):
+            cards = scrape_search_page(self.driver, dumper=self.dumper)
+            fresh = [c for c in cards if c.hh_id not in seen]
+            if not fresh:
+                if not seen:
+                    stats.notes.append(f"стр.{stats.pages}: карточек=0")
+                break
+            hid = 0
+            for card in fresh:
+                seen.add(card.hh_id)
+                stats.scraped += 1
+                saved = self.store.upsert_from_search(card)
+                stats.upserted += 1
+                logger.debug(
+                    "upsert id={} status={} title={!r}",
+                    saved.hh_id,
+                    saved.status.value,
+                    saved.title,
+                )
+                if saved.status == VacancyStatus.NEW:
+                    page_new += 1
+                elif saved.status == VacancyStatus.SKIPPED and self._hide_on_serp(
+                    card.hh_id
+                ):
+                    hid += 1
+            note = f"стр.{stats.pages}: карточек={len(fresh)}"
+            if hid:
+                note += f" скрыто={hid}"
+            stats.notes.append(note)
+            if hid == 0:
+                break
+            logger.info(
+                "Скрыто старых нерелевантных: {}, добираем карточки", hid
             )
-            if saved.status == VacancyStatus.NEW:
-                page_new += 1
-        stats.notes.append(f"стр.{stats.pages}: карточек={len(fresh)}")
         return page_new
 
     def _hide_on_serp(self, hh_id: str) -> bool:

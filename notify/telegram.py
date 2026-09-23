@@ -1,6 +1,7 @@
 """Telegram-уведомления для hh_autoapply.
 
-Токен бота — BOT_TOKEN из finance_bot/.env (не дублируем в этом проекте).
+Токен — HH_TG_BOT_TOKEN из .env этого проекта.
+Если его нет, запасной вариант — BOT_TOKEN из finance_bot/.env.
 Chat id захардкожен (личный).
 Ответ на капчу читаем через getUpdates, пока ждём текст.
 """
@@ -29,9 +30,10 @@ _update_offset: int | None = None
 
 
 def _bot_token() -> str:
-    """BOT_TOKEN из finance_bot/.env; опционально HH_TG_BOT_TOKEN поверх."""
-    from config import env
+    """HH_TG_BOT_TOKEN из .env проекта, иначе BOT_TOKEN finance_bot."""
+    from config import env, load_env
 
+    load_env()
     override = env("HH_TG_BOT_TOKEN")
     if override:
         return override
