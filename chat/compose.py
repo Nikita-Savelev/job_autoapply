@@ -80,6 +80,9 @@ SYSTEM_HINT_BASE = """\
 
 История (ОНИ и МЫ):
 - Не повторяй то, что МЫ уже писали; на повтор вопроса - 1 фраза-отсылка.
+- Нельзя копировать целое предложение из наших прошлых сообщений в этом чате.
+  Плохо: снова «Уверенно владею основами и могу быстро адаптироваться к новым задачам»,
+  если эта фраза уже была в предыдущем ответе. Новое сообщение - только про новый вопрос.
 - Отказ работодателя → REJECT. Финал «спасибо, ждите» → NO_REPLY.
 - Не путай «хотите откликнуться?» с отказом.
 - Нет нового вопроса → NO_REPLY. Есть вопрос → обычный текст.
@@ -231,6 +234,44 @@ def compose_reply(
                 reason=f"intent={intent.value};no_reply",
             )
 
+    text = _without_repeated_sentences(thread, text)
+    if not text or text.upper() in (NO_REPLY_TOKEN, REJECT_TOKEN):
+        logger.warning(
+            "chat {}: после снятия повторов ответ пустой — переписываю",
+            thread.chat_id,
+        )
+        try:
+            text = _without_repeated_sentences(
+                thread,
+                _clean_reply(
+                    _llm_reply(
+                        thread,
+                        resume_text=resume_text,
+                        vacancy_description=vacancy_description,
+                        company_profile=company_profile,
+                        vacancy_title=vacancy_title,
+                        tone=tone,
+                        extra_hint=(
+                            "Не копируй ни одного целого предложения из сообщений МЫ. "
+                            "Ответь короче и только по последнему вопросу."
+                        ),
+                    )
+                ),
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("chat compose repeat-retry fail: {}", exc)
+            return ChatDraft(
+                kind=ChatActionKind.ESCALATE,
+                reason=f"repeat_retry_error:{exc}",
+                escalate_reason=EscalateReason.BOT_STUCK,
+            )
+        if not text or text.upper() in (NO_REPLY_TOKEN, REJECT_TOKEN):
+            return ChatDraft(
+                kind=ChatActionKind.ESCALATE,
+                reason="repeated_sentences_empty",
+                escalate_reason=EscalateReason.BOT_STUCK,
+            )
+
     _ = dry_run
     return ChatDraft(
         kind=ChatActionKind.REPLY,
@@ -378,6 +419,57 @@ def _llm_reply(
         resp.raise_for_status()
         data = resp.json()
     return str(data["choices"][0]["message"]["content"] or "")
+
+
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?…])\s+")
+_REPEAT_MIN_CHARS = 40
+
+
+def _norm_sentence(text: str) -> str:
+    t = (text or "").lower().replace("ё", "е")
+    t = re.sub(r"[^\w\s]+", " ", t, flags=re.UNICODE)
+    return " ".join(t.split())
+
+
+def _split_sentences(text: str) -> list[str]:
+    return [p.strip() for p in _SENTENCE_SPLIT.split(text or "") if p.strip()]
+
+
+def _prior_outbound_norms(thread: ChatThread) -> set[str]:
+    norms: set[str] = set()
+    for msg in thread.messages:
+        if msg.direction != MessageDirection.OUT:
+            continue
+        for sentence in _split_sentences(msg.text):
+            norm = _norm_sentence(sentence)
+            if len(norm) >= _REPEAT_MIN_CHARS:
+                norms.add(norm)
+    return norms
+
+
+def _without_repeated_sentences(thread: ChatThread, text: str) -> str:
+    """Убрать целые предложения, которые уже были в наших прошлых репликах."""
+    if not text or text.upper() in (NO_REPLY_TOKEN, REJECT_TOKEN):
+        return text
+    prior = _prior_outbound_norms(thread)
+    if not prior:
+        return text
+    kept: list[str] = []
+    dropped: list[str] = []
+    for sentence in _split_sentences(text):
+        norm = _norm_sentence(sentence)
+        if len(norm) >= _REPEAT_MIN_CHARS and norm in prior:
+            dropped.append(sentence)
+            continue
+        kept.append(sentence)
+    if not dropped:
+        return text
+    logger.info(
+        "chat {}: убрал повтор предложений ({})",
+        thread.chat_id,
+        "; ".join(s[:80] for s in dropped),
+    )
+    return " ".join(kept).strip()
 
 
 def _format_history(thread: ChatThread, *, max_chars: int = 14000) -> str:
