@@ -290,25 +290,11 @@ def resolve_captcha_if_present(
             )
 
         since = time.time()
-        deadline = since + per_attempt
-        reminders_left = 3
-        answer = None
-        while time.time() < deadline:
-            chunk = min(120.0, deadline - time.time())
-            answer = wait_telegram_text(
-                timeout_sec=chunk,
-                since_ts=since,
-                stop_if=lambda: not captcha_visible(driver),
-            )
-            if answer or not captcha_visible(driver):
-                break
-            if reminders_left <= 0:
-                continue
-            reminders_left -= 1
-            send_telegram(
-                "Капча hh.ru всё ещё на экране. "
-                "Ответь текстом с картинки в этом чате."
-            )
+        answer = wait_telegram_text(
+            timeout_sec=per_attempt,
+            since_ts=since,
+            stop_if=lambda: not captcha_visible(driver),
+        )
         if not captcha_visible(driver):
             logger.info("Капча снята — продолжаю")
             if visual_enabled():
