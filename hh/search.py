@@ -95,6 +95,54 @@ def scrape_search_page(
     return result
 
 
+def _current_search_page(url: str) -> int:
+    from urllib.parse import parse_qs, urlparse
+
+    raw = parse_qs(urlparse(url).query).get("page", ["0"])
+    try:
+        return int(raw[0])
+    except (TypeError, ValueError):
+        return 0
+
+
+def _next_numbered_page(driver: WebDriver):
+    """Следующий номер в pager-page, если стрелки «дальше» уже нет.
+
+    На хвосте выдачи HH оставляет ссылки 17–20, но снимает data-qa=pager-next.
+    """
+    from urllib.parse import parse_qs, urlparse
+
+    current = _current_search_page(driver.current_url)
+    best = None
+    best_n = None
+    try:
+        links = driver.find_elements(By.CSS_SELECTOR, sel.SEARCH_PAGER_PAGE)
+    except Exception as exc:
+        logger.debug("pager-page не найден: {}", exc)
+        return None
+    for el in links:
+        try:
+            if not el.is_displayed():
+                continue
+            if (el.get_attribute("aria-current") or "").lower() == "true":
+                continue
+            href = (el.get_attribute("href") or "").strip()
+            if not href:
+                continue
+            raw = parse_qs(urlparse(href).query).get("page", [])
+            if not raw:
+                continue
+            n = int(raw[0])
+        except Exception:
+            continue
+        if n <= current:
+            continue
+        if best_n is None or n < best_n:
+            best = el
+            best_n = n
+    return best
+
+
 def go_next_search_page(
     driver: WebDriver,
     *,
@@ -108,7 +156,7 @@ def go_next_search_page(
         nexts = driver.find_elements(By.CSS_SELECTOR, sel.SEARCH_PAGER_NEXT)
     except Exception as exc:
         logger.debug("pager-next не найден: {}", exc)
-        return False
+        nexts = []
 
     target = None
     for el in nexts:
@@ -119,7 +167,9 @@ def go_next_search_page(
         except Exception:
             continue
     if target is None:
-        logger.info("Следующей страницы поиска нет (pager-next отсутствует)")
+        target = _next_numbered_page(driver)
+    if target is None:
+        logger.info("Следующей страницы поиска нет")
         return False
 
     href = (target.get_attribute("href") or "").strip()

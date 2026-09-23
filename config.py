@@ -132,6 +132,19 @@ def pause_between_actions_sec() -> float:
         return 2.5
 
 
+def resolve_action_pause(*, explicit: float | None, debug: bool = False) -> float:
+    """Пауза между действиями.
+
+    Live (без --debug): 0, если не передали --pause.
+    --debug без --pause: HH_PAUSE_SEC, чтобы было видно клики.
+    """
+    if explicit is not None:
+        return max(0.0, float(explicit))
+    if debug:
+        return pause_between_actions_sec()
+    return 0.0
+
+
 def pg_conninfo() -> dict[str, str | int]:
     return {
         "dbname": env("PG_NAME", DEFAULT_PG["name"]),

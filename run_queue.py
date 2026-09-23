@@ -15,7 +15,7 @@ import sys
 from browser import create_driver, quit_driver
 from config import (
     load_env,
-    pause_between_actions_sec,
+    resolve_action_pause,
     pg_conninfo,
     pg_dsn_display,
     resume_path,
@@ -94,11 +94,7 @@ def main(argv: list[str] | None = None) -> int:
     log_file = (dumper.run_dir / "run.log") if dumper else None
     setup_logging(debug=args.debug, log_file=log_file)
 
-    pause_sec = (
-        max(0.0, float(args.pause))
-        if args.pause is not None
-        else pause_between_actions_sec()
-    )
+    pause_sec = resolve_action_pause(explicit=args.pause, debug=bool(args.debug))
     queue = _ordered_queue()
     dry_run = bool(args.dry_run)
     remaining = max(0, int(args.apply_limit))

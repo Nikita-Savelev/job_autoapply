@@ -33,9 +33,14 @@ SYSTEM_PROMPT = """\
   интеграции / боты на Python, Senior Python и т.п.
 - НЕ подходят: другой основной стек (C#, Java, Go, PHP, frontend-only, 1C, iOS/Android),
   чистый Team Lead / Tech Lead / руководитель без сильного hands-on backend,
-  QA / аналитик / DevOps-only / data scientist без backend, C++/CV hardware без Python,
+  аналитик / DevOps-only / data scientist без backend, C++/CV hardware без Python,
   нерелевантные домены вроде «инженер-расчётчик» без IT-backend.
-- Fullstack на Python — скорее да; Fullstack с упором на React/Vue без Python — нет.
+- ЖЁСТКО НЕ подходят любые роли тестирования, даже если в названии есть Python:
+  QA, AQA, SDET, тестировщик, тестировщик-автоматизатор, test automation,
+  инженер по автоматизации тестирования, Automation QA, Fullstack QA.
+  Кандидат не тестировщик. suitable=false, даже если стек Python.
+  «Автоматизация» без слова про тесты (боты, n8n, процессы) — это не QA, можно да.
+- Fullstack на Python (разработка) — скорее да; Fullstack с упором на React/Vue без Python — нет.
 - Если сомневаешься по одному названию — suitable=false и короткая reason.
 
 Ответ СТРОГО одним JSON-объектом без markdown:
@@ -134,11 +139,21 @@ def match_vacancies_batch(
         except (TypeError, ValueError):
             score = 1.0 if suitable else 0.0
         reason = str(item.get("reason") or ("suitable" if suitable else "rejected"))
+        title = next((v.title for v in vacancies if v.hh_id == hh_id), "")
+        if suitable and _is_qa_title(title):
+            suitable = False
+            score = 0.0
+            reason = "QA/тестирование — не целевая роль"
+            logger.info(
+                "LLM override {} {!r}: suitable=False (QA-фильтр)",
+                hh_id,
+                title,
+            )
         out[hh_id] = MatchDecision(accepted=suitable, score=score, reason=reason)
         logger.info(
             "LLM decision {} {!r}: suitable={} score={} reason={}",
             hh_id,
-            next((v.title for v in vacancies if v.hh_id == hh_id), ""),
+            title,
             suitable,
             score,
             reason,
@@ -160,6 +175,21 @@ def match_vacancies_batch(
         sum(1 for d in out.values() if not d.accepted),
     )
     return out
+
+
+_QA_TITLE_RE = re.compile(
+    r"("
+    r"тестиров|тестирован|"
+    r"\bsdet\b|\baqa\b|\bqa\b|"
+    r"test\s*automation|automation\s*qa|quality\s*assurance"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def _is_qa_title(title: str) -> bool:
+    """Название про тестирование, а не про разработку/автоматизацию процессов."""
+    return bool(_QA_TITLE_RE.search(title or ""))
 
 
 def _parse_json_content(content: str) -> dict:

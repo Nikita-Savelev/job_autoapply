@@ -96,3 +96,30 @@ def scrape_vacancy_page(
         dump_current(driver, dumper, label="vacancy_no_description")
 
     return VacancyPage(title=title, description=description, url=driver.current_url)
+
+
+def vacancy_closed_reason(driver: WebDriver) -> str | None:
+    """Архив или закрытый доступ: в такую вакансию больше не заходим.
+
+    Маркеры сняты с живых страниц:
+    - архив 134485865: data-qa vacancy-title-archived-text / vacancy-archive-description,
+      текст «В архиве с …»;
+    - закрытый доступ 137159216: «Вам недоступна эта вакансия».
+    """
+    try:
+        raw = driver.page_source or ""
+    except Exception:
+        return None
+    # Только реальные узлы страницы. Фразы из словаря переводов
+    # (applicant.negotiations.vacancyarchived) есть на каждой вакансии.
+    if (
+        'data-qa="vacancy-title-archived-text"' in raw
+        or 'data-qa="vacancy-archive-description"' in raw
+    ):
+        return "archived"
+    if (
+        "Вам недоступна эта вакансия" in raw
+        and 'data-qa="applicant-login-card"' in raw
+    ):
+        return "restricted"
+    return None

@@ -13,6 +13,7 @@ class VacancyStatus(StrEnum):
     APPLIED = "applied"
     ERROR = "error"
     BLOCKED = "blocked"
+    INACTIVE = "inactive"  # архив / доступ ограничен — больше не открываем
 
 
 @dataclass

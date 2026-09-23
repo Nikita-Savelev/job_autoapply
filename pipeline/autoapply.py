@@ -24,7 +24,7 @@ from hh.actions import (
 from hh.captcha import CaptchaTimeout, resolve_captcha_if_present
 from hh.company import get_or_fetch_company
 from hh.search import go_next_search_page, open_search, scrape_search_page
-from hh.vacancy import scrape_vacancy_page, vacancy_tab
+from hh.vacancy import scrape_vacancy_page, vacancy_closed_reason, vacancy_tab
 from matcher import match_vacancies_batch
 
 
@@ -86,6 +86,7 @@ class AutoApplyPipeline:
         self.role = target_role()
         self.dumper = dumper
         self._resume_text = ""
+        self._retried_error_ids: set[str] = set()
         if self.debug and self.dumper is None:
             self.dumper = PageDumper()
 
@@ -235,7 +236,14 @@ class AutoApplyPipeline:
         ]
         already_matched = [v for v in db_new if v.match_score is not None]
         to_match = [v for v in db_new if v.match_score is None]
-        to_retry = self.store.list_by_status(VacancyStatus.ERROR)
+        # error ретраим один раз за прогон, не на каждой странице поиска
+        to_retry = [
+            v
+            for v in self.store.list_by_status(VacancyStatus.ERROR)
+            if v.hh_id not in self._retried_error_ids
+        ]
+        for v in to_retry:
+            self._retried_error_ids.add(v.hh_id)
 
         if self.limit is not None:
             to_match = to_match[: self.limit]
@@ -389,6 +397,10 @@ class AutoApplyPipeline:
                     page.title,
                     len(page.description or ""),
                 )
+                closed = vacancy_closed_reason(self.driver)
+                if closed:
+                    self._mark_inactive(hh_id, closed, stats, description=page.description)
+                    return
 
                 # Уже откликались на hh: кнопка «Чат» / «Отказ» / «Собеседование»
                 resp_state = detect_response_button_state(self.driver)
@@ -547,6 +559,14 @@ class AutoApplyPipeline:
             stats.notes.append(f"blocked(captcha) {hh_id}")
             raise
         except Exception as exc:  # noqa: BLE001
+            closed = None
+            try:
+                closed = vacancy_closed_reason(self.driver)
+            except Exception:  # noqa: BLE001
+                closed = None
+            if closed:
+                self._mark_inactive(hh_id, closed, stats)
+                return
             logger.exception("Ошибка apply {}: {}", hh_id, exc)
             if self.dumper is not None:
                 try:
@@ -559,3 +579,24 @@ class AutoApplyPipeline:
             stats.errors += 1
             stats.notes.append(f"error {hh_id}: {exc}")
         time.sleep(self.pause)
+
+    def _mark_inactive(
+        self,
+        hh_id: str,
+        reason: str,
+        stats: PipelineStats,
+        *,
+        description: str | None = None,
+    ) -> None:
+        """Архив или закрытый доступ: статус inactive, больше не открываем."""
+        label = "архив" if reason == "archived" else "доступ ограничен"
+        logger.info("INACTIVE {} — {}", hh_id, label)
+        self.store.mark(
+            hh_id,
+            VacancyStatus.INACTIVE,
+            skip_reason=reason,
+            error_message="",
+            description=description,
+        )
+        stats.skipped += 1
+        stats.notes.append(f"inactive({reason}) {hh_id}")

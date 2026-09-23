@@ -24,7 +24,7 @@ from browser import create_driver, quit_driver
 from config import (
     build_daily_search_url,
     load_env,
-    pause_between_actions_sec,
+    resolve_action_pause,
     pg_conninfo,
     pg_dsn_display,
     resume_path,
@@ -75,7 +75,7 @@ def main(argv: list[str] | None = None) -> int:
         type=float,
         default=None,
         metavar="SEC",
-        help="Пауза между действиями (по умолчанию HH_PAUSE_SEC)",
+        help="Пауза между действиями. Live по умолчанию 0; --debug берёт HH_PAUSE_SEC",
     )
     parser.add_argument(
         "--headless",
@@ -89,11 +89,7 @@ def main(argv: list[str] | None = None) -> int:
     setup_logging(debug=args.debug, log_file=log_file)
 
     url = build_daily_search_url(base=args.url, period=args.period)
-    pause_sec = (
-        max(0.0, float(args.pause))
-        if args.pause is not None
-        else pause_between_actions_sec()
-    )
+    pause_sec = resolve_action_pause(explicit=args.pause, debug=bool(args.debug))
     dry_run = bool(args.dry_run)
 
     logger.info("DAILY SEARCH_URL: {}", url)

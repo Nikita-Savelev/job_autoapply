@@ -16,6 +16,7 @@ SEARCH_HIDE_BUTTON = "[data-qa='vacancy__blacklist-show-add']"
 SEARCH_RESPONSE_BUTTON = "[data-qa='vacancy-serp__vacancy_response']"
 # Пагинация поиска
 SEARCH_PAGER_NEXT = "a[data-qa='pager-next']"
+SEARCH_PAGER_PAGE = "a[data-qa='pager-page']"
 SEARCH_PAGER_BLOCK = "[data-qa='pager-block']"
 
 # Страница вакансии — карточка компании

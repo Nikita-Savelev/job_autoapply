@@ -38,6 +38,7 @@ class Vacancy(models.Model):
         APPLIED = "applied", "Отклик"
         ERROR = "error", "Ошибка"
         BLOCKED = "blocked", "Блок (тест)"
+        INACTIVE = "inactive", "Неактивна"
 
     hh_id = models.CharField("HH id", primary_key=True, max_length=64)
     title = models.TextField("Название")
