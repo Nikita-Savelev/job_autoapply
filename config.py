@@ -29,10 +29,10 @@ HH_LOGIN_URL = f"{HH_BASE}/account/login"
 DEFAULT_TARGET_ROLE = "Python Backend Developer"
 
 # Ежедневный широкий поиск: text=Python, без региона (вся РФ / удалёнка),
-# 100 карточек на странице. period=0 — всё время; для daily позже period=7.
+# 50 карточек на странице. period=0 — всё время; для daily позже period=7.
 DEFAULT_DAILY_SEARCH_URL = (
     "https://hh.ru/search/vacancy?"
-    "items_on_page=100&ored_clusters=true&text=Python&search_period=0"
+    "items_on_page=50&ored_clusters=true&text=Python&search_period=0"
     "&hhtmFromLabel=search_order_button&hhtmFrom=vacancy_search_list"
 )
 
@@ -65,17 +65,17 @@ def build_daily_search_url(
     *,
     base: str | None = None,
     period: int | None = None,
-    items_on_page: int = 100,
+    items_on_page: int = 50,
     drop_area: bool = True,
 ) -> str:
     """Собрать URL ежедневного поиска.
 
-    Канон — DEFAULT_DAILY_SEARCH_URL (Python, без региона, 100/стр).
+    Канон — DEFAULT_DAILY_SEARCH_URL (Python, без региона, 50/стр).
     ``base`` / HH_SEARCH_URL подставляются только если явно переданы
     или env уже содержит text= (иначе игнорируем мусорный старый URL).
 
     - без area (весь сайт), если drop_area=True
-    - items_on_page=100
+    - items_on_page=50
     - period: None = как в base; 0 = всё время; 7 = за неделю
     """
     if base is not None and base.strip():

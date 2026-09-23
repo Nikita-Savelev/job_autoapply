@@ -42,7 +42,7 @@ python run_chat.py --once --force --debug          # полный прогон �
 python manage.py runserver 8005
 ```
 
-Ежедневный режим: `run_daily.py` — text=Python, без area, 100/стр.
+Ежедневный режим: `run_daily.py` — text=Python, без area, 50/стр.
 `--period 0` = вся история; `--period 7` = свежие за неделю.
 
 ## Модули
