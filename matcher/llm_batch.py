@@ -161,18 +161,15 @@ def match_vacancies_batch(
 
     missing = [v.hh_id for v in vacancies if v.hh_id not in out]
     if missing:
-        logger.warning("LLM не вернул решения для {} id — помечаем reject", missing)
-        for hh_id in missing:
-            out[hh_id] = MatchDecision(
-                accepted=False,
-                score=0.0,
-                reason="LLM не вернул решение по этой вакансии",
-            )
+        logger.warning(
+            "LLM не вернул решения для {} id — оставляю без решения", missing
+        )
 
     logger.info(
-        "LLM итог: suitable={} reject={}",
+        "LLM итог: suitable={} reject={} нет ответа={}",
         sum(1 for d in out.values() if d.accepted),
         sum(1 for d in out.values() if not d.accepted),
+        len(missing),
     )
     return out
 

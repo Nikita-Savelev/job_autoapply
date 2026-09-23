@@ -65,52 +65,62 @@ def _scroll_search_results(driver: WebDriver) -> None:
     logger.info("Выдача: стоп прокрутки, карточек {}", max(last, 0))
 
 
-def scrape_search_page(
-    driver: WebDriver,
-    *,
-    dumper: PageDumper | None = None,
-) -> list[Vacancy]:
-    """Собрать карточки с текущей страницы выдачи."""
-    _scroll_search_results(driver)
-    cards = driver.find_elements(By.CSS_SELECTOR, sel.SEARCH_VACANCY_CARDS)
-    logger.info("Найдено DOM-карточек: {} (селектор {})", len(cards), sel.SEARCH_VACANCY_CARDS)
-    result: list[Vacancy] = []
-
-    for i, card in enumerate(cards, start=1):
+def _node_text(card, css: str) -> tuple[str, str]:
+    """Текст и href узла. textContent читается и у карточки вне экрана."""
+    try:
+        el = card.find_element(By.CSS_SELECTOR, css)
+    except Exception:
+        return "", ""
+    try:
+        text = (el.get_attribute("textContent") or "").strip()
+    except Exception:
+        text = ""
+    if not text:
         try:
-            title_el = card.find_element(By.CSS_SELECTOR, sel.SEARCH_VACANCY_TITLE)
-            href = title_el.get_attribute("href") or ""
-            try:
-                title = card.find_element(
-                    By.CSS_SELECTOR, sel.SEARCH_VACANCY_TITLE_TEXT
-                ).text.strip()
-            except Exception:
-                title = title_el.text.strip()
-        except Exception as exc:
-            logger.debug("Карточка #{}: нет title ({})", i, exc)
-            continue
+            text = (el.text or "").strip()
+        except Exception:
+            text = ""
+    try:
+        href = (el.get_attribute("href") or "").strip()
+    except Exception:
+        href = ""
+    return text, href
 
+
+def _parse_search_cards(driver: WebDriver) -> tuple[list[Vacancy], int]:
+    cards = driver.find_elements(By.CSS_SELECTOR, sel.SEARCH_VACANCY_CARDS)
+    result: list[Vacancy] = []
+    for i, card in enumerate(cards, start=1):
+        title, href = _node_text(card, sel.SEARCH_VACANCY_TITLE_TEXT)
+        title_href_text, title_href = _node_text(card, sel.SEARCH_VACANCY_TITLE)
+        if not title:
+            title = title_href_text
+        if not href:
+            href = title_href
         hh_id = _extract_hh_id(href)
         if not hh_id or not title:
             logger.debug("Карточка #{}: пропуск (hh_id/title пусты)", i)
             continue
 
-        company = _safe_text(card, sel.SEARCH_VACANCY_COMPANY) or _safe_text(
-            card, sel.SEARCH_VACANCY_COMPANY_FALLBACK
-        )
-        salary = _safe_text(card, sel.SEARCH_VACANCY_SALARY)
-        address = _safe_text(card, sel.SEARCH_VACANCY_ADDRESS)
-        snippet = _safe_text(card, sel.SEARCH_VACANCY_SNIPPET) or address
+        company, _ = _node_text(card, sel.SEARCH_VACANCY_COMPANY)
+        if not company:
+            company, _ = _node_text(card, sel.SEARCH_VACANCY_COMPANY_FALLBACK)
+        salary, _ = _node_text(card, sel.SEARCH_VACANCY_SALARY)
+        address, _ = _node_text(card, sel.SEARCH_VACANCY_ADDRESS)
+        snippet, _ = _node_text(card, sel.SEARCH_VACANCY_SNIPPET)
+        if not snippet:
+            snippet = address
 
-        vac = Vacancy(
-            hh_id=hh_id,
-            title=title,
-            url=href.split("?")[0],
-            company=company or None,
-            salary=salary or None,
-            snippet=snippet or None,
+        result.append(
+            Vacancy(
+                hh_id=hh_id,
+                title=title,
+                url=href.split("?")[0],
+                company=company or None,
+                salary=salary or None,
+                snippet=snippet or None,
+            )
         )
-        result.append(vac)
         logger.debug(
             "Карточка #{}: id={} title={!r} company={!r} salary={!r}",
             i,
@@ -119,6 +129,37 @@ def scrape_search_page(
             company,
             salary,
         )
+    return result, len(cards)
+
+
+def scrape_search_page(
+    driver: WebDriver,
+    *,
+    dumper: PageDumper | None = None,
+) -> list[Vacancy]:
+    """Собрать карточки с текущей страницы выдачи."""
+    import time
+
+    _scroll_search_results(driver)
+    result: list[Vacancy] = []
+    dom_n = 0
+    for attempt in range(1, 4):
+        result, dom_n = _parse_search_cards(driver)
+        logger.info(
+            "Найдено DOM-карточек: {} разобрано: {} (попытка {})",
+            dom_n,
+            len(result),
+            attempt,
+        )
+        if dom_n == 0 or len(result) >= max(1, int(dom_n * 0.5)):
+            break
+        logger.warning(
+            "Разобрано {} из {} карточек — жду и читаю страницу снова",
+            len(result),
+            dom_n,
+        )
+        time.sleep(0.8)
+        _scroll_search_results(driver)
 
     if not result:
         logger.warning("0 вакансий после парсинга — дамп HTML для правки селекторов")
@@ -251,10 +292,3 @@ def go_next_search_page(
 
     logger.info("URL после пагинации: {}", driver.current_url)
     return True
-
-
-def _safe_text(root, css: str) -> str:
-    try:
-        return root.find_element(By.CSS_SELECTOR, css).text.strip()
-    except Exception:
-        return ""

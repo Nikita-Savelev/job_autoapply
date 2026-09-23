@@ -94,19 +94,30 @@ def build_daily_search_url(
         raw = "https://" + raw.lstrip("/")
 
     parts = urlparse(raw)
-    flat: dict[str, str] = {}
+    pairs: list[tuple[str, str]] = []
     for key, value in parse_qsl(parts.query, keep_blank_values=True):
         if drop_area and (key == "area" or key.startswith("area[")):
             continue
-        flat[key] = value
+        if key == "search_field":
+            pairs.append((key, value))
+            continue
+        pairs = [(k, v) for k, v in pairs if k != key]
+        pairs.append((key, value))
 
-    flat["items_on_page"] = str(items_on_page)
-    flat.setdefault("ored_clusters", "true")
-    flat.setdefault("text", "Python")
+    def _set(key: str, value: str) -> None:
+        nonlocal pairs
+        pairs = [(k, v) for k, v in pairs if k != key]
+        pairs.append((key, value))
+
+    _set("items_on_page", str(items_on_page))
+    if not any(k == "ored_clusters" for k, _ in pairs):
+        pairs.append(("ored_clusters", "true"))
+    if not any(k == "text" for k, _ in pairs):
+        pairs.append(("text", "Python"))
     if period is not None:
-        flat["search_period"] = str(int(period))
+        _set("search_period", str(int(period)))
 
-    query = urlencode(list(flat.items()))
+    query = urlencode(pairs)
     return urlunparse(
         (
             parts.scheme or "https",

@@ -170,7 +170,8 @@ class AutoApplyPipeline:
                 skipped_before = stats.skipped
                 page_new += self._collect_search_page(stats, seen_on_page)
                 self._process_queue(stats, page_new=page_new)
-                if stats.skipped == skipped_before:
+                hid = self._hide_known_skips(seen_on_page)
+                if stats.skipped == skipped_before and hid == 0:
                     break
 
             if stats.applied >= self.max_applies:
@@ -215,47 +216,50 @@ class AutoApplyPipeline:
         return stats
 
     def _collect_search_page(self, stats: PipelineStats, seen: set[str]) -> int:
-        """Прокрутить выдачу, записать карточки, скрыть старые нерелевантные.
+        """Прокрутить выдачу и записать карточки.
 
-        Скрываем только status=skipped. Уже с откликом и просто просмотренные
-        подходящие остаются. `seen` — id этой страницы, чтобы не считать дважды.
+        Скрытие старых отказов — после разбора новых на странице, и только
+        если hidden_at ещё пустой. `seen` — id этой страницы.
         """
         page_new = 0
-        for _round in range(1, 5):
-            cards = scrape_search_page(self.driver, dumper=self.dumper)
-            fresh = [c for c in cards if c.hh_id not in seen]
-            if not fresh:
-                if not seen:
-                    stats.notes.append(f"стр.{stats.pages}: карточек=0")
-                break
-            hid = 0
-            for card in fresh:
-                seen.add(card.hh_id)
-                stats.scraped += 1
-                saved = self.store.upsert_from_search(card)
-                stats.upserted += 1
-                logger.debug(
-                    "upsert id={} status={} title={!r}",
-                    saved.hh_id,
-                    saved.status.value,
-                    saved.title,
-                )
-                if saved.status == VacancyStatus.NEW:
-                    page_new += 1
-                elif saved.status == VacancyStatus.SKIPPED and self._hide_on_serp(
-                    card.hh_id
-                ):
-                    hid += 1
-            note = f"стр.{stats.pages}: карточек={len(fresh)}"
-            if hid:
-                note += f" скрыто={hid}"
-            stats.notes.append(note)
-            if hid == 0:
-                break
-            logger.info(
-                "Скрыто старых нерелевантных: {}, добираем карточки", hid
+        cards = scrape_search_page(self.driver, dumper=self.dumper)
+        fresh = [c for c in cards if c.hh_id not in seen]
+        if not fresh:
+            if not seen:
+                stats.notes.append(f"стр.{stats.pages}: карточек=0")
+            return page_new
+        for card in fresh:
+            seen.add(card.hh_id)
+            stats.scraped += 1
+            saved = self.store.upsert_from_search(card)
+            stats.upserted += 1
+            logger.debug(
+                "upsert id={} status={} title={!r}",
+                saved.hh_id,
+                saved.status.value,
+                saved.title,
             )
+            if saved.status == VacancyStatus.NEW:
+                page_new += 1
+        stats.notes.append(f"стр.{stats.pages}: карточек={len(fresh)}")
         return page_new
+
+    def _hide_known_skips(self, ids: set[str]) -> int:
+        """Скрыть с выдачи отказы, которые ещё не помечены hidden_at."""
+        hid = 0
+        for hh_id in ids:
+            vac = self.store.get(hh_id)
+            if (
+                vac is None
+                or vac.status != VacancyStatus.SKIPPED
+                or vac.hidden_at is not None
+            ):
+                continue
+            if self._hide_on_serp(hh_id):
+                hid += 1
+        if hid:
+            logger.info("Скрыто нерелевантных без пометки: {}", hid)
+        return hid
 
     def _hide_on_serp(self, hh_id: str) -> bool:
         if self.dry_run:
@@ -337,7 +341,14 @@ class AutoApplyPipeline:
                 if stats.applied >= self.max_applies:
                     return
 
-                decision = decisions[vac.hh_id]
+                decision = decisions.get(vac.hh_id)
+                if decision is None:
+                    logger.warning(
+                        "LLM не вернул решение {} — оставляю NEW, не скрываю",
+                        vac.hh_id,
+                    )
+                    stats.notes.append(f"llm_miss {vac.hh_id}")
+                    continue
                 self.store.mark(
                     vac.hh_id, VacancyStatus.NEW, match_score=decision.score
                 )
