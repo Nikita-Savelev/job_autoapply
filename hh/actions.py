@@ -231,6 +231,26 @@ def _serp_card(driver: WebDriver, hh_id: str) -> WebElement | None:
     return None
 
 
+def _card_already_responded(card: WebElement) -> bool:
+    """На карточке выдачи уже есть отклик, а не кнопка «Откликнуться»."""
+    try:
+        buttons = card.find_elements(By.CSS_SELECTOR, sel.SEARCH_RESPONSE_BUTTON)
+    except Exception:
+        return False
+    for btn in buttons:
+        try:
+            if not btn.is_displayed():
+                continue
+        except Exception:
+            continue
+        label = (btn.text or "").strip().lower()
+        if "откликнуться" in label:
+            return False
+        if any(token in label for token in sel.VACANCY_ALREADY_RESPONDED_TEXTS):
+            return True
+    return False
+
+
 def hide_vacancy_on_serp(
     driver: WebDriver,
     hh_id: str,
@@ -245,6 +265,9 @@ def hide_vacancy_on_serp(
     card = _serp_card(driver, hh_id)
     if card is None:
         logger.info("Скрыть {}: карточки нет на текущей выдаче", hh_id)
+        return False
+    if _card_already_responded(card):
+        logger.info("Скрыть {}: на карточке уже есть отклик, не трогаю", hh_id)
         return False
     try:
         eye = card.find_element(By.CSS_SELECTOR, sel.SEARCH_HIDE_BUTTON)
