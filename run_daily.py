@@ -82,6 +82,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Chrome без окна",
     )
+    parser.add_argument(
+        "--foreground",
+        action="store_true",
+        help="Показывать окно Chrome поверх других программ",
+    )
     args = parser.parse_args(argv)
 
     dumper = PageDumper() if args.debug else None
@@ -115,7 +120,7 @@ def main(argv: list[str] | None = None) -> int:
         logger.error("Postgres недоступен: {}\nПодними: docker compose up -d", exc)
         return 1
 
-    driver = create_driver(headless=args.headless)
+    driver = create_driver(headless=args.headless, background=not args.foreground)
     try:
         stats = AutoApplyPipeline(
             driver,

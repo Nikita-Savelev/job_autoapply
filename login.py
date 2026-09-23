@@ -15,7 +15,7 @@ from config import HH_LOGIN_URL, load_env
 
 def main() -> int:
     load_env()
-    driver = create_driver()
+    driver = create_driver(background=False)
     try:
         print(f"Открываю: {HH_LOGIN_URL}")
         driver.get(HH_LOGIN_URL)
