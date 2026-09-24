@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Отклики и чат в одном Chrome, по кругу.
 
-Один проход очереди поисковых ссылок (пока не кончится дневной лимит или
-выдача), затем догон чатов до N уже известных подряд, затем несколько кругов
-мониторинга, и снова отклики. Бесконечно.
+После каждой поисковой ссылки — догон чатов до N уже известных подряд.
+Когда очередь ссылок кончилась, несколько кругов мониторинга и снова отклики.
+Бесконечно.
 
 Один процесс, один профиль. run_daily / run_chat / run_queue рядом не запускать.
 
@@ -54,63 +54,65 @@ def _driver_alive(driver) -> bool:
         return False
 
 
-def _apply_pass(
+def _remaining_applies(
+    store: VacancyStore,
+    *,
+    dry_run: bool,
+    apply_limit: int | None,
+    already: int,
+) -> int:
+    remaining = store.remaining_daily_applies()
+    if apply_limit is not None:
+        remaining = min(remaining, max(0, apply_limit - already))
+    if dry_run and remaining <= 0:
+        return apply_limit if apply_limit is not None else 50
+    return max(0, remaining)
+
+
+def _apply_one(
     driver,
     store: VacancyStore,
     *,
-    queue: list[tuple[str, str]],
+    name: str,
+    url: str,
+    index: int,
+    total_links: int,
     dry_run: bool,
     debug: bool,
     pause_sec: float,
     dumper: PageDumper | None,
-    apply_limit: int | None,
+    remaining: int,
 ) -> int:
-    """Один проход группы ссылок. Возвращает число откликов за проход."""
-    remaining = store.remaining_daily_applies()
-    if apply_limit is not None:
-        remaining = min(remaining, max(0, apply_limit))
-    if remaining <= 0 and not dry_run:
-        logger.warning("Дневной лимит откликов исчерпан — проход откликов пропускаем")
-        return 0
-    if dry_run and remaining <= 0:
-        remaining = apply_limit if apply_limit is not None else 50
+    """Один поиск. Возвращает число откликов."""
+    logger.info(
+        "=== ОТКЛИКИ [{}/{}] {} | remaining={} ===",
+        index,
+        total_links,
+        name,
+        remaining,
+    )
+    stats = AutoApplyPipeline(
+        driver,
+        store,
+        search_url=url,
+        dry_run=dry_run,
+        debug=debug,
+        limit=None,
+        max_applies=remaining,
+        max_pages=None,
+        pause_sec=pause_sec,
+        dumper=dumper,
+    ).run()
+    return stats.applied
 
-    total = 0
-    for i, (name, url) in enumerate(queue, 1):
-        if not dry_run:
-            remaining = store.remaining_daily_applies()
-            if apply_limit is not None:
-                remaining = min(remaining, max(0, apply_limit - total))
-            if remaining <= 0:
-                logger.info("Лимит откликов на этот проход исчерпан")
-                break
-        logger.info(
-            "=== ОТКЛИКИ [{}/{}] {} | remaining={} ===",
-            i,
-            len(queue),
-            name,
-            remaining,
-        )
-        stats = AutoApplyPipeline(
-            driver,
-            store,
-            search_url=url,
-            dry_run=dry_run,
-            debug=debug,
-            limit=None,
-            max_applies=remaining,
-            max_pages=None,
-            pause_sec=pause_sec,
-            dumper=dumper,
-        ).run()
-        total += stats.applied
-        logger.info(
-            "ОТКЛИКИ [{}] done: applied=+{} (проход {})",
-            name,
-            stats.applied,
-            total,
-        )
-    return total
+
+def _chat_catch(driver, *, dry_run: bool, cfg: SweepConfig) -> None:
+    """Догон переписки: стоп после N чатов подряд, которые уже есть в БД."""
+    logger.info(
+        "ЧАТ догон: стоп после {} чатов подряд уже в БД",
+        cfg.known_in_db_streak,
+    )
+    _log_chat("догон", run_chat_cycle(driver, dry_run=dry_run, cfg=cfg))
 
 
 def _chat_cfg(*, known_streak: int, pages: int, fast: bool, dry_run: bool) -> SweepConfig:
@@ -179,7 +181,7 @@ def main(argv: list[str] | None = None) -> int:
         type=int,
         default=3,
         metavar="N",
-        help="Сколько кругов мониторинга чатов между проходами откликов",
+        help="Сколько кругов мониторинга чатов после всей очереди ссылок",
     )
     parser.add_argument(
         "--pages",
@@ -205,8 +207,8 @@ def main(argv: list[str] | None = None) -> int:
     logger.info("RESUME: {}", resume_path())
     logger.info("DB: {}", pg_dsn_display())
     logger.info(
-        "режим: {} | отклики pause={}s | чат pause={:.1f}s fast={} | "
-        "догон {} подряд | мониторинг {}×{} стр.",
+        "режим: {} | отклики pause={}s | чат после каждой ссылки, "
+        "pause={:.1f}s fast={} | догон {} подряд | мониторинг {}×{} стр.",
         "dry-run" if dry_run else "LIVE",
         pause_sec,
         chat_pause,
@@ -241,29 +243,6 @@ def main(argv: list[str] | None = None) -> int:
                     quit_driver(driver)
                 driver = create_driver(headless=bool(args.headless))
 
-            try:
-                applied = _apply_pass(
-                    driver,
-                    vacancies,
-                    queue=queue,
-                    dry_run=dry_run,
-                    debug=bool(args.debug),
-                    pause_sec=pause_sec,
-                    dumper=dumper,
-                    apply_limit=args.apply_limit,
-                )
-                logger.info("Проход откликов закончен: applied={}", applied)
-            except WebDriverException as exc:
-                logger.error("Chrome отвалился на откликах: {}", exc)
-                quit_driver(driver)
-                driver = None
-                continue
-            except Exception as exc:  # noqa: BLE001
-                logger.exception("Проход откликов упал: {}", exc)
-
-            if driver is None or not _driver_alive(driver):
-                continue
-
             catch = _chat_cfg(
                 known_streak=known_streak,
                 pages=int(args.pages),
@@ -271,15 +250,71 @@ def main(argv: list[str] | None = None) -> int:
                 dry_run=dry_run,
             )
             mon = replace(catch, known_in_db_streak=0)
+            applied = 0
+            for i, (name, url) in enumerate(queue, 1):
+                if driver is None or not _driver_alive(driver):
+                    if driver is not None:
+                        quit_driver(driver)
+                    driver = create_driver(headless=bool(args.headless))
+
+                remaining = _remaining_applies(
+                    vacancies,
+                    dry_run=dry_run,
+                    apply_limit=args.apply_limit,
+                    already=applied,
+                )
+                if remaining <= 0 and not dry_run:
+                    logger.info("Лимит откликов на этот проход исчерпан")
+                    break
+
+                try:
+                    got = _apply_one(
+                        driver,
+                        vacancies,
+                        name=name,
+                        url=url,
+                        index=i,
+                        total_links=len(queue),
+                        dry_run=dry_run,
+                        debug=bool(args.debug),
+                        pause_sec=pause_sec,
+                        dumper=dumper,
+                        remaining=remaining,
+                    )
+                except WebDriverException as exc:
+                    logger.error("Chrome отвалился на откликах: {}", exc)
+                    quit_driver(driver)
+                    driver = None
+                    break
+                except Exception as exc:  # noqa: BLE001
+                    logger.exception("Поиск {} упал: {}", name, exc)
+                    got = 0
+                else:
+                    applied += got
+                    logger.info(
+                        "ОТКЛИКИ [{}] done: applied=+{} (проход {})",
+                        name,
+                        got,
+                        applied,
+                    )
+
+                if driver is None or not _driver_alive(driver):
+                    break
+                try:
+                    _chat_catch(driver, dry_run=dry_run, cfg=catch)
+                except WebDriverException as exc:
+                    logger.error("Chrome отвалился на чатах: {}", exc)
+                    quit_driver(driver)
+                    driver = None
+                    break
+                except Exception as exc:  # noqa: BLE001
+                    logger.exception("Чат после {} упал: {}", name, exc)
+
+            logger.info("Проход откликов закончен: applied={}", applied)
+            if driver is None or not _driver_alive(driver):
+                continue
+
             try:
-                logger.info(
-                    "ЧАТ догон: стоп после {} чатов подряд уже в БД",
-                    known_streak,
-                )
-                _log_chat(
-                    "догон",
-                    run_chat_cycle(driver, dry_run=dry_run, cfg=catch),
-                )
                 for n in range(1, monitor_cycles + 1):
                     logger.info("ЧАТ мониторинг {}/{}", n, monitor_cycles)
                     _log_chat(
