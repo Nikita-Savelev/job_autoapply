@@ -151,6 +151,22 @@ def list_thread_ids(driver: WebDriver) -> list[str]:
 
 def list_threads(driver: WebDriver) -> list[ChatThread]:
     """Карточки списка: id, title, subtitle, preview (в т.ч. бейдж «Отказ»)."""
+    last_exc: StaleElementReferenceException | None = None
+    for attempt in range(1, 4):
+        try:
+            return _list_threads_once(driver)
+        except StaleElementReferenceException as exc:
+            last_exc = exc
+            logger.warning(
+                "Список чатов устарел, читаю снова ({}/3)", attempt
+            )
+            time.sleep(0.4)
+    if last_exc is not None:
+        raise last_exc
+    return []
+
+
+def _list_threads_once(driver: WebDriver) -> list[ChatThread]:
     threads: list[ChatThread] = []
     cells = driver.find_elements(By.CSS_SELECTOR, sel.CHATIK_OPEN_CHAT)
     for cell in cells:

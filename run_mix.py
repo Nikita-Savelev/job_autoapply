@@ -22,7 +22,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from loguru import logger
-from selenium.common.exceptions import WebDriverException
+from selenium.common.exceptions import StaleElementReferenceException, WebDriverException
 
 from browser import create_driver, quit_driver
 from chat.pipeline import SweepConfig, run_chat_cycle, set_run_context
@@ -43,6 +43,36 @@ from debug import PageDumper
 from logging_setup import setup_logging
 from pipeline import AutoApplyPipeline
 from run_queue import _ordered_queue
+
+
+def _session_dead(exc: WebDriverException) -> bool:
+    """Сессия Chrome умерла. Устаревшая карточка и обрыв кадра при загрузке — нет."""
+    if isinstance(exc, StaleElementReferenceException):
+        return False
+    msg = str(exc).split("\n", 1)[0].lower()
+    return any(
+        token in msg
+        for token in (
+            "invalid session",
+            "session deleted",
+            "disconnected",
+            "chrome not reachable",
+            "not connected to devtools",
+            "no such window",
+            "target window already closed",
+        )
+    )
+
+
+def _release_if_dead(driver, exc: WebDriverException, *, where: str):
+    """Закрыть Chrome, только если сессия умерла. Возвращает (driver, закрыли)."""
+    short = str(exc).split("\n", 1)[0]
+    if not _session_dead(exc) and _driver_alive(driver):
+        logger.warning("{}: {} — браузер оставляю", where, short)
+        return driver, False
+    logger.error("Chrome отвалился на {}: {}", where, short)
+    quit_driver(driver)
+    return None, True
 
 
 def _driver_alive(driver) -> bool:
@@ -303,10 +333,10 @@ def main(argv: list[str] | None = None) -> int:
                         remaining=remaining,
                     )
                 except WebDriverException as exc:
-                    logger.error("Chrome отвалился на откликах: {}", exc)
-                    quit_driver(driver)
-                    driver = None
-                    break
+                    driver, dead = _release_if_dead(driver, exc, where="откликах")
+                    if dead:
+                        break
+                    got = 0
                 except Exception as exc:  # noqa: BLE001
                     logger.exception("Поиск {} упал: {}", name, exc)
                     got = 0
@@ -330,10 +360,9 @@ def main(argv: list[str] | None = None) -> int:
                         monitor_cycles=monitor_cycles,
                     )
                 except WebDriverException as exc:
-                    logger.error("Chrome отвалился на чатах: {}", exc)
-                    quit_driver(driver)
-                    driver = None
-                    break
+                    driver, dead = _release_if_dead(driver, exc, where="чатах")
+                    if dead:
+                        break
                 except Exception as exc:  # noqa: BLE001
                     logger.exception("Чат после {} упал: {}", name, exc)
 
@@ -352,9 +381,9 @@ def main(argv: list[str] | None = None) -> int:
                         monitor_cycles=monitor_cycles,
                     )
                 except WebDriverException as exc:
-                    logger.error("Chrome отвалился на чатах: {}", exc)
-                    quit_driver(driver)
-                    driver = None
+                    driver, _dead = _release_if_dead(
+                        driver, exc, where="чатах"
+                    )
                 except Exception as exc:  # noqa: BLE001
                     logger.exception("Чат при исчерпанном лимите упал: {}", exc)
 
