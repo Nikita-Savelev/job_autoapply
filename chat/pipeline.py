@@ -591,6 +591,7 @@ def _open_and_handle(
     *,
     result: ChatCycleResult,
     cfg: SweepConfig,
+    _followups: int = 0,
 ) -> ChatThread:
     from hh import chat_ui
     from hh.highlight import show_banner
@@ -953,9 +954,30 @@ def _open_and_handle(
 
         if live.needs_our_reply():
             live.status = ChatThreadStatus.AWAITING_US
-            show_banner(driver, "OK send + новое входящее → awaiting_us")
+            live.bot_paused = False
+            live.paused_reason = None
+            live.title = thread.title or live.title
+            inbound_now = live.last_inbound_text() or ""
+            if inbound_now:
+                live.last_message_preview = inbound_now[:500]
+            show_banner(driver, "Сразу следующий вопрос бота")
+            if cfg.persist and not cfg.dry_run:
+                _persist(live)
+            if _followups < 6:
+                logger.info(
+                    "chat {}: бот рекрутера задал следующий вопрос — отвечаем следом ({})",
+                    live.chat_id,
+                    _followups + 1,
+                )
+                return _open_and_handle(
+                    driver,
+                    live,
+                    result=result,
+                    cfg=cfg,
+                    _followups=_followups + 1,
+                )
             logger.info(
-                "chat {}: sent OK, но уже есть новое IN → awaiting_us",
+                "chat {}: ещё есть вопрос, лимит следом — оставим awaiting_us",
                 live.chat_id,
             )
         else:
