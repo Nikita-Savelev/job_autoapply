@@ -1,17 +1,49 @@
-"""Логирование: в --debug — подробный DEBUG в консоль и в файл прогона."""
+"""Логирование: консоль и полный лог каждого запуска в logs/."""
 
 from __future__ import annotations
 
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from loguru import logger
+
+from config import ROOT
+
+LOGS_DIR = ROOT / "logs"
+_FILE_FMT = (
+    "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <7} | "
+    "{name}:{function}:{line} — {message}"
+)
 
 _CONFIGURED = False
 _BANNER_SINK_ID: int | None = None
 
 
-def setup_logging(*, debug: bool = False, log_file: Path | None = None) -> None:
+def default_log_path() -> Path:
+    """Один файл на запуск: logs/20260924_141100_run_mix.log."""
+    script = Path(sys.argv[0]).stem or "run"
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return LOGS_DIR / f"{stamp}_{script}.log"
+
+
+def _add_file(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    logger.add(
+        path,
+        level="DEBUG",
+        format=_FILE_FMT,
+        encoding="utf-8",
+        enqueue=False,
+    )
+
+
+def setup_logging(*, debug: bool = False, log_file: Path | None = None) -> Path:
+    """Консоль: INFO, в --debug ещё и DEBUG. Файл всегда пишет DEBUG.
+
+    ``log_file`` — дополнительная копия (рядом с HTML-дампом). Основной файл
+    всегда в ``logs/``.
+    """
     global _CONFIGURED, _BANNER_SINK_ID
     logger.remove()
     _BANNER_SINK_ID = None
@@ -22,16 +54,10 @@ def setup_logging(*, debug: bool = False, log_file: Path | None = None) -> None:
     )
     logger.add(sys.stderr, level=level, format=fmt, enqueue=False)
 
-    if log_file is not None:
-        log_file.parent.mkdir(parents=True, exist_ok=True)
-        logger.add(
-            log_file,
-            level="DEBUG",
-            format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <7} | {name}:{function}:{line} — {message}",
-            encoding="utf-8",
-            enqueue=False,
-        )
-        logger.debug("Файл лога: {}", log_file)
+    main_log = default_log_path()
+    _add_file(main_log)
+    if log_file is not None and log_file.resolve() != main_log.resolve():
+        _add_file(log_file)
 
     # INFO+ → баннер в окне Selenium (если драйвер привязан)
     try:
@@ -48,7 +74,9 @@ def setup_logging(*, debug: bool = False, log_file: Path | None = None) -> None:
         _BANNER_SINK_ID = None
 
     _CONFIGURED = True
+    logger.info("Лог: {}", main_log)
     logger.debug("Логирование: level={}", level)
+    return main_log
 
 
 def get_logger():
