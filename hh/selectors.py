@@ -124,6 +124,10 @@ CAPTCHA_IMG_SRC = "img[src*='/captcha/picture']"
 CAPTCHA_RENEW = "[data-qa='captcha-renew-text']"
 CAPTCHA_ERROR = "[data-qa='account-captcha-error']"
 CAPTCHA_SUBMIT = "button[type='submit']"
+# Крестик модалки капчи. Хеш в классе плавает, имя модуля — нет.
+CAPTCHA_MODAL_CLOSE = "[class*='HhcaptchaModal-module_close'] button"
+FOREIGN_COUNTRY_TITLE_QA = "[data-qa='relocation-warning-title']"
+FOREIGN_COUNTRY_CONFIRM = "[data-qa='relocation-warning-confirm']"
 CAPTCHA_MARKERS = (
     CAPTCHA_PICTURE,
     CAPTCHA_INPUT,

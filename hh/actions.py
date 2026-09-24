@@ -585,11 +585,15 @@ def _confirm_foreign_country_popup(
     end = time.time() + max(0.5, wait_sec)
     clicked = False
     while time.time() < end:
-        # по тексту кнопки
+        # стабильный data-qa, затем текст кнопки
         try:
-            els = driver.find_elements(By.XPATH, sel.FOREIGN_COUNTRY_FORCE_XPATH)
+            els = driver.find_elements(By.CSS_SELECTOR, sel.FOREIGN_COUNTRY_CONFIRM)
         except Exception:
             els = []
+        try:
+            els.extend(driver.find_elements(By.XPATH, sel.FOREIGN_COUNTRY_FORCE_XPATH))
+        except Exception:
+            pass
         for el in els:
             try:
                 if not el.is_displayed():

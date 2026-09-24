@@ -196,6 +196,73 @@ def _submit_captcha_text(driver: WebDriver, answer: str) -> None:
         driver.execute_script("arguments[0].click();", button)
 
 
+def _foreign_country_warning_visible(driver: WebDriver) -> bool:
+    """Попап «вакансия в другой стране» всё ещё на странице под капчей."""
+    try:
+        for el in driver.find_elements(By.CSS_SELECTOR, sel.FOREIGN_COUNTRY_TITLE_QA):
+            try:
+                if el.is_displayed():
+                    return True
+            except Exception:  # noqa: BLE001
+                continue
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        body = driver.find_element(By.TAG_NAME, "body").text or ""
+    except Exception:  # noqa: BLE001
+        return False
+    return sel.FOREIGN_COUNTRY_POPUP_TITLE in body
+
+
+def _close_captcha_modal(driver: WebDriver) -> bool:
+    """Закрыть зависшую капчу крестиком. True, если клик ушёл."""
+    try:
+        buttons = driver.find_elements(By.CSS_SELECTOR, sel.CAPTCHA_MODAL_CLOSE)
+    except Exception:  # noqa: BLE001
+        buttons = []
+    for button in buttons:
+        try:
+            if not button.is_displayed():
+                continue
+        except Exception:  # noqa: BLE001
+            continue
+        try:
+            button.click()
+        except Exception:  # noqa: BLE001
+            try:
+                driver.execute_script("arguments[0].click();", button)
+            except Exception:  # noqa: BLE001
+                continue
+        return True
+    return False
+
+
+def _dismiss_stuck_captcha_over_foreign(driver: WebDriver) -> bool:
+    """Капча поверх «другая страна»: «Отправить» не снимает её и вешает страницу.
+
+    Крестик убирает эту капчу. Дальше жмём «Все равно откликнуться»,
+    капча всплывает второй раз и проходит обычным решением.
+    """
+    if not captcha_visible(driver) or not _foreign_country_warning_visible(driver):
+        return False
+    logger.warning(
+        "Капча зависла поверх «другая страна» — закрываю крестиком"
+    )
+    if not _close_captcha_modal(driver):
+        logger.warning("Капча: крестик модалки не найден")
+        return False
+    deadline = time.time() + 5.0
+    while time.time() < deadline:
+        if not captcha_visible(driver):
+            logger.info(
+                "Капча закрыта крестиком — дальше «Все равно откликнуться»"
+            )
+            return True
+        time.sleep(0.3)
+    logger.warning("Капча: после крестика модалка всё ещё на экране")
+    return False
+
+
 def _captcha_image_src(driver: WebDriver) -> str:
     el = _captcha_image_el(driver)
     if el is None:
@@ -323,6 +390,11 @@ def resolve_captcha_if_present(
             if visual_enabled():
                 show_banner(driver, "Капча OK — продолжаю")
             time.sleep(1.0)
+            return True
+        if _dismiss_stuck_captcha_over_foreign(driver):
+            if visual_enabled():
+                show_banner(driver, "Капча закрыта — жму «Все равно»")
+            time.sleep(0.5)
             return True
         logger.warning(
             "Капча: попытка {}/{} не прошла", attempt, _MAX_ATTEMPTS
