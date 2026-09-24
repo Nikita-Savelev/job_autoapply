@@ -30,6 +30,12 @@ from probe_search_urls import build_candidates
 
 # Порядок: сначала самые урожайные по probe, broad — в конце
 QUEUE_ORDER = (
+    "K_python_razrab_remote_ru",
+    "L_python_backend_ru",
+    "P_python_dev_remote_ru",
+    "M_django_ru",
+    "N_fastapi_ru",
+    "O_middle_python_ru",
     "G_python_razrab_remote",
     "F_python_dev_name_exp3_6",
     "B_python_razrab_name",

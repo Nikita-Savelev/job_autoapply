@@ -41,6 +41,15 @@ def build_candidates() -> list[tuple[str, str]]:
         "enable_snippets": "false",
         "ored_clusters": "true",
         "order_by": "publication_time",
+        "items_on_page": 50,
+    }
+    # Без региона: вся выдача hh.ru, больше вакансий чем только Москва.
+    wide = {
+        "enable_snippets": "false",
+        "ored_clusters": "true",
+        "order_by": "publication_time",
+        "items_on_page": 50,
+        "search_period": 0,
     }
     name = ("name",)
     name_desc = ("name", "description")
@@ -129,6 +138,56 @@ def build_candidates() -> list[tuple[str, str]]:
                 name,
                 text="Python FastAPI OR Django OR Backend",
                 **base,
+            ),
+        ),
+        (
+            "K_python_razrab_remote_ru",
+            _url_fields(
+                name,
+                text="Python разработчик",
+                schedule="remote",
+                **wide,
+            ),
+        ),
+        (
+            "L_python_backend_ru",
+            _url_fields(
+                name,
+                text="Python Backend",
+                **wide,
+            ),
+        ),
+        (
+            "M_django_ru",
+            _url_fields(
+                name,
+                text="Django",
+                **wide,
+            ),
+        ),
+        (
+            "N_fastapi_ru",
+            _url_fields(
+                name,
+                text="FastAPI",
+                **wide,
+            ),
+        ),
+        (
+            "O_middle_python_ru",
+            _url_fields(
+                name,
+                text="Middle Python",
+                **wide,
+            ),
+        ),
+        (
+            "P_python_dev_remote_ru",
+            _url_fields(
+                name,
+                text="Python Developer",
+                schedule="remote",
+                **wide,
             ),
         ),
     ]
