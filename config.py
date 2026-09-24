@@ -28,7 +28,7 @@ HH_LOGIN_URL = f"{HH_BASE}/account/login"
 
 DEFAULT_TARGET_ROLE = "Python Backend Developer"
 
-# Ежедневный широкий поиск: text=Python, без региона (вся РФ / удалёнка),
+# Ежедневный широкий поиск: text=Python, без региона (весь сайт),
 # 50 карточек на странице. period=0 — всё время; для daily позже period=7.
 DEFAULT_DAILY_SEARCH_URL = (
     "https://hh.ru/search/vacancy?"

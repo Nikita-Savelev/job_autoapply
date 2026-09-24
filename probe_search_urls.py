@@ -36,15 +36,8 @@ def _url_fields(search_fields: tuple[str, ...], **params: str | int) -> str:
 
 # Набор кандидатов: имя → URL
 def build_candidates() -> list[tuple[str, str]]:
+    # Регион не задаём: hh.ru ищет по всему сайту, без Москвы и без страны.
     base = {
-        "area": 1,  # Москва
-        "enable_snippets": "false",
-        "ored_clusters": "true",
-        "order_by": "publication_time",
-        "items_on_page": 50,
-    }
-    # Без региона: вся выдача hh.ru, больше вакансий чем только Москва.
-    wide = {
         "enable_snippets": "false",
         "ored_clusters": "true",
         "order_by": "publication_time",
@@ -141,53 +134,36 @@ def build_candidates() -> list[tuple[str, str]]:
             ),
         ),
         (
-            "K_python_razrab_remote_ru",
-            _url_fields(
-                name,
-                text="Python разработчик",
-                schedule="remote",
-                **wide,
-            ),
-        ),
-        (
-            "L_python_backend_ru",
-            _url_fields(
-                name,
-                text="Python Backend",
-                **wide,
-            ),
-        ),
-        (
-            "M_django_ru",
+            "K_django",
             _url_fields(
                 name,
                 text="Django",
-                **wide,
+                **base,
             ),
         ),
         (
-            "N_fastapi_ru",
+            "L_fastapi",
             _url_fields(
                 name,
                 text="FastAPI",
-                **wide,
+                **base,
             ),
         ),
         (
-            "O_middle_python_ru",
+            "M_middle_python",
             _url_fields(
                 name,
                 text="Middle Python",
-                **wide,
+                **base,
             ),
         ),
         (
-            "P_python_dev_remote_ru",
+            "N_python_dev_remote",
             _url_fields(
                 name,
                 text="Python Developer",
                 schedule="remote",
-                **wide,
+                **base,
             ),
         ),
     ]
