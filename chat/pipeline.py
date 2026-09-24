@@ -630,6 +630,7 @@ def _open_and_handle(
         live.company_hh_id = live.company_hh_id or thread.company_hh_id
         live.url = live.url or thread.url
         live.bot_paused = thread.bot_paused
+        live.paused_reason = thread.paused_reason
         live.status = thread.status
         live.unread = thread.unread or live.unread
         inferred = live.infer_source()

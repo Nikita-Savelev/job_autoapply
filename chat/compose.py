@@ -40,6 +40,10 @@ _SALARY_SECOND = (
     "Честно, я бы и сам рад назвать цифру, но такой в уме пока нет. "
     "Если подскажете вилку по вакансии, скажу сразу, сойдёмся или нет."
 )
+_ONSITE_REPLY = (
+    "К сожалению, нет. Сейчас я в Армении и рассматриваю только удалёнку."
+)
+_ONSITE_REPEAT = "Нет, только удалёнка."
 
 _CONTEXT_DIR = Path(__file__).resolve().parents[2] / "context"
 
@@ -130,6 +134,10 @@ def compose_reply(
     salary = _salary_reply(thread)
     if salary is not None:
         return salary
+
+    onsite = _onsite_reply(thread)
+    if onsite is not None:
+        return onsite
 
     tone = "cold" if intent == ChatIntent.COLD_OFFER else "screening"
     try:
@@ -260,16 +268,13 @@ def compose_reply(
             )
         except Exception as exc:  # noqa: BLE001
             logger.exception("chat compose repeat-retry fail: {}", exc)
-            return ChatDraft(
-                kind=ChatActionKind.ESCALATE,
-                reason=f"repeat_retry_error:{exc}",
-                escalate_reason=EscalateReason.BOT_STUCK,
-            )
+            text = ""
         if not text or text.upper() in (NO_REPLY_TOKEN, REJECT_TOKEN):
-            return ChatDraft(
-                kind=ChatActionKind.ESCALATE,
-                reason="repeated_sentences_empty",
-                escalate_reason=EscalateReason.BOT_STUCK,
+            text = _short_after_repeat(thread)
+            logger.info(
+                "chat {}: вопрос без новой фразы → короткий ответ {!r}",
+                thread.chat_id,
+                text,
             )
 
     _ = dry_run
@@ -320,6 +325,39 @@ def _salary_reply(thread: ChatThread) -> ChatDraft | None:
         reason=f"salary_{step}",
         delay_sec=compute_reply_delay(text),
     )
+
+
+def _is_onsite_question(text: str) -> bool:
+    t = (text or "").lower().replace("ё", "е")
+    return any(x in t for x in ("офис", "гибрид", "переезд", "релокац", "локац"))
+
+
+def _onsite_reply(thread: ChatThread) -> ChatDraft | None:
+    """Офис, гибрид, локация, переезд — фиксированный отказ, без Telegram."""
+    last = thread.last_inbound_text() or ""
+    if not _is_onsite_question(last):
+        return None
+    already = any(
+        msg.direction == MessageDirection.OUT
+        and "удален" in (msg.text or "").lower().replace("ё", "е")
+        for msg in thread.messages
+    )
+    text = _ONSITE_REPEAT if already else _ONSITE_REPLY
+    logger.info("chat {}: офис/локация → фиксированный отказ", thread.chat_id)
+    return ChatDraft(
+        kind=ChatActionKind.REPLY,
+        text=text,
+        reason="onsite_no",
+        delay_sec=compute_reply_delay(text),
+    )
+
+
+def _short_after_repeat(thread: ChatThread) -> str:
+    """Вопрос, на который модель снова выдала старые фразы. Отвечаем коротко, без тега."""
+    last = thread.last_inbound_text() or ""
+    if _is_onsite_question(last):
+        return _ONSITE_REPEAT
+    return "Да."
 
 
 def _llm_reply(
