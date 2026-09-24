@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Отклики и чат в одном Chrome, по кругу.
 
-После каждой поисковой ссылки — догон чатов до N уже известных подряд.
-Когда очередь ссылок кончилась, несколько кругов мониторинга и снова отклики.
-Бесконечно.
+После каждой поисковой ссылки — догон чатов и сразу N кругов мониторинга,
+затем следующая ссылка. Бесконечно.
 
 Один процесс, один профиль. run_daily / run_chat / run_queue рядом не запускать.
 
@@ -106,13 +105,32 @@ def _apply_one(
     return stats.applied
 
 
-def _chat_catch(driver, *, dry_run: bool, cfg: SweepConfig) -> None:
-    """Догон переписки: стоп после N чатов подряд, которые уже есть в БД."""
+def _chat_pass(
+    driver,
+    *,
+    dry_run: bool,
+    catch: SweepConfig,
+    mon: SweepConfig,
+    monitor_cycles: int,
+) -> None:
+    """Догон, затем несколько кругов мониторинга. Так после каждой ссылки."""
     logger.info(
         "ЧАТ догон: стоп после {} чатов подряд уже в БД",
-        cfg.known_in_db_streak,
+        catch.known_in_db_streak,
     )
-    _log_chat("догон", run_chat_cycle(driver, dry_run=dry_run, cfg=cfg))
+    _log_chat("догон", run_chat_cycle(driver, dry_run=dry_run, cfg=catch))
+    for n in range(1, monitor_cycles + 1):
+        logger.info("ЧАТ мониторинг {}/{}", n, monitor_cycles)
+        _log_chat(
+            f"мониторинг {n}/{monitor_cycles}",
+            run_chat_cycle(driver, dry_run=dry_run, cfg=mon),
+        )
+        if n < monitor_cycles and mon.sleep_after_sweep_sec > 0:
+            logger.info(
+                "sleep {:.0f}s до следующего мониторинга",
+                mon.sleep_after_sweep_sec,
+            )
+            time.sleep(mon.sleep_after_sweep_sec)
 
 
 def _chat_cfg(*, known_streak: int, pages: int, fast: bool, dry_run: bool) -> SweepConfig:
@@ -181,7 +199,7 @@ def main(argv: list[str] | None = None) -> int:
         type=int,
         default=3,
         metavar="N",
-        help="Сколько кругов мониторинга чатов после всей очереди ссылок",
+        help="Сколько кругов мониторинга в каждом заходе в чат",
     )
     parser.add_argument(
         "--pages",
@@ -207,15 +225,16 @@ def main(argv: list[str] | None = None) -> int:
     logger.info("RESUME: {}", resume_path())
     logger.info("DB: {}", pg_dsn_display())
     logger.info(
-        "режим: {} | отклики pause={}s | чат после каждой ссылки, "
-        "pause={:.1f}s fast={} | догон {} подряд | мониторинг {}×{} стр.",
+        "режим: {} | отклики pause={}s | после каждой ссылки чат "
+        "(догон + мониторинг {}×{} стр.) pause={:.1f}s fast={} | "
+        "догон {} подряд",
         "dry-run" if dry_run else "LIVE",
         pause_sec,
+        monitor_cycles,
+        max(1, int(args.pages)),
         chat_pause,
         bool(args.fast),
         known_streak,
-        monitor_cycles,
-        max(1, int(args.pages)),
     )
     for i, (name, url) in enumerate(queue, 1):
         logger.info("  [{}] {}", i, name)
@@ -251,6 +270,7 @@ def main(argv: list[str] | None = None) -> int:
             )
             mon = replace(catch, known_in_db_streak=0)
             applied = 0
+            limit_hit = False
             for i, (name, url) in enumerate(queue, 1):
                 if driver is None or not _driver_alive(driver):
                     if driver is not None:
@@ -265,6 +285,7 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 if remaining <= 0 and not dry_run:
                     logger.info("Лимит откликов на этот проход исчерпан")
+                    limit_hit = True
                     break
 
                 try:
@@ -301,7 +322,13 @@ def main(argv: list[str] | None = None) -> int:
                 if driver is None or not _driver_alive(driver):
                     break
                 try:
-                    _chat_catch(driver, dry_run=dry_run, cfg=catch)
+                    _chat_pass(
+                        driver,
+                        dry_run=dry_run,
+                        catch=catch,
+                        mon=mon,
+                        monitor_cycles=monitor_cycles,
+                    )
                 except WebDriverException as exc:
                     logger.error("Chrome отвалился на чатах: {}", exc)
                     quit_driver(driver)
@@ -310,29 +337,28 @@ def main(argv: list[str] | None = None) -> int:
                 except Exception as exc:  # noqa: BLE001
                     logger.exception("Чат после {} упал: {}", name, exc)
 
-            logger.info("Проход откликов закончен: applied={}", applied)
-            if driver is None or not _driver_alive(driver):
-                continue
-
-            try:
-                for n in range(1, monitor_cycles + 1):
-                    logger.info("ЧАТ мониторинг {}/{}", n, monitor_cycles)
-                    _log_chat(
-                        f"мониторинг {n}/{monitor_cycles}",
-                        run_chat_cycle(driver, dry_run=dry_run, cfg=mon),
+            if (
+                limit_hit
+                and applied == 0
+                and driver is not None
+                and _driver_alive(driver)
+            ):
+                try:
+                    _chat_pass(
+                        driver,
+                        dry_run=dry_run,
+                        catch=catch,
+                        mon=mon,
+                        monitor_cycles=monitor_cycles,
                     )
-                    if n < monitor_cycles:
-                        logger.info(
-                            "sleep {:.0f}s до следующего мониторинга",
-                            mon.sleep_after_sweep_sec,
-                        )
-                        time.sleep(mon.sleep_after_sweep_sec)
-            except WebDriverException as exc:
-                logger.error("Chrome отвалился на чатах: {}", exc)
-                quit_driver(driver)
-                driver = None
-            except Exception as exc:  # noqa: BLE001
-                logger.exception("Проход чатов упал: {}", exc)
+                except WebDriverException as exc:
+                    logger.error("Chrome отвалился на чатах: {}", exc)
+                    quit_driver(driver)
+                    driver = None
+                except Exception as exc:  # noqa: BLE001
+                    logger.exception("Чат при исчерпанном лимите упал: {}", exc)
+
+            logger.info("Проход откликов закончен: applied={}", applied)
     except KeyboardInterrupt:
         logger.info("MIX остановлен")
         return 0
