@@ -37,7 +37,7 @@ python run_daily.py --period 0 --apply-limit 200   # широкий Python, ве
 python run_daily.py --period 7 --apply-limit 200   # daily: за неделю
 python run.py --apply-limit 50                     # HH_SEARCH_URL из .env
 python run.py --dry-run --apply-limit 100
-python run_mix.py --debug                         # после каждой ссылки: догон и 3 круга мониторинга
+python run_mix.py --debug                         # после ссылки непрочитанные; раз за круг — чаты за сегодня
 python run_chat.py --debug                         # догон до 5 чатов в БД, затем мониторинг
 python run_chat.py --loop --debug                  # только мониторинг (3 стр.)
 python run_chat.py --once --force --debug          # полный прогон списка (редко)

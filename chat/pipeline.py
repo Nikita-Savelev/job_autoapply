@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import re
 import time
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -25,6 +26,12 @@ from chat.models import (
     EscalateReason,
 )
 from config import pause_between_actions_sec
+
+# После нашей реплики бот рекрутера часто отвечает сразу. Ждём это окно и,
+# если вопрос пришёл, отвечаем тут же и снова ждём.
+_FOLLOWUP_WAIT_SEC = 5.0
+_MAX_FOLLOWUPS = 8
+_TODAY_LIST_TIME = re.compile(r"^\d{1,2}:\d{2}$")
 
 
 class SweepStopReason(StrEnum):
@@ -276,6 +283,203 @@ def _collect_list_pages(
     return [seen[cid] for cid in order]
 
 
+def is_today_list_time(label: str) -> bool:
+    """«13:46» — сегодня. День недели или дата — сообщение старше суток."""
+    return bool(_TODAY_LIST_TIME.match((label or "").strip()))
+
+
+def _wait_followup_inbound(
+    driver: WebDriver,
+    *,
+    chat_id: str,
+    timeout_sec: float,
+) -> ChatThread | None:
+    """Ждать входящее после нашей реплики. None — за окно никто не написал."""
+    from hh import chat_ui
+
+    deadline = time.time() + max(0.0, timeout_sec)
+    while True:
+        live = chat_ui.read_thread(driver, chat_id=chat_id)
+        if live.needs_our_reply():
+            return live
+        if time.time() >= deadline:
+            return None
+        time.sleep(0.4)
+
+
+def _collect_scrolled(
+    driver: WebDriver,
+    *,
+    pause_sec: float,
+    today_only: bool = False,
+) -> list[ChatThread]:
+    """Список сверху вниз. today_only обрывается на первой карточке не за сегодня."""
+    from hh import chat_ui
+
+    _scroll_chat_list_top(driver)
+    seen: dict[str, ChatThread] = {}
+    order: list[str] = []
+    stale = 0
+    for _ in range(40):
+        hit_old = False
+        added = 0
+        for card in chat_ui.list_threads(driver):
+            label = (card.list_time_label or "").strip()
+            if today_only and label and not is_today_list_time(label):
+                hit_old = True
+                logger.info(
+                    "сегодняшние чаты: стоп на {} ({!r})",
+                    card.chat_id,
+                    label,
+                )
+                break
+            if card.chat_id not in seen:
+                order.append(card.chat_id)
+                added += 1
+            seen[card.chat_id] = card
+        if hit_old:
+            break
+        if not _scroll_chat_list(driver, pause_sec=pause_sec):
+            break
+        if added == 0:
+            stale += 1
+            if stale >= 2:
+                break
+        else:
+            stale = 0
+    return [seen[cid] for cid in order]
+
+
+def _handle_listed_card(
+    driver: WebDriver,
+    card: ChatThread,
+    *,
+    result: ChatCycleResult,
+    cfg: SweepConfig,
+    force_open: bool,
+) -> None:
+    from hh.highlight import show_banner
+
+    prev_preview = None
+    if _RUN_STORE is not None:
+        try:
+            row = _RUN_STORE.get_thread(card.chat_id)
+            if row is not None:
+                prev_preview = row.last_message_preview
+        except Exception:  # noqa: BLE001
+            prev_preview = None
+
+    known = _load_or_create_thread(card, result=result)
+    if not force_open and _skip_unchanged_preview(
+        known, card.last_message_preview, prev_preview
+    ):
+        logger.debug(
+            "chat {}: preview без изменений — skip ({!r})",
+            known.chat_id,
+            (card.last_message_preview or "")[:60],
+        )
+        result.skipped += 1
+        return
+
+    reason = "непрочитанный" if force_open else "сегодня"
+    logger.info(
+        "chat {}: {} — open ({!r})",
+        known.chat_id,
+        reason,
+        (card.last_message_preview or "")[:60],
+    )
+    show_banner(driver, f"{reason}: {known.chat_id}")
+    handled = _open_and_handle(driver, known, result=result, cfg=cfg)
+    _wait_step_enter(_thread_after_handle(handled), cfg=cfg)
+    time.sleep(cfg.pause_between_chats_sec)
+
+
+def run_unread_drain(
+    driver: WebDriver,
+    *,
+    cfg: SweepConfig = DEFAULT_SWEEP,
+    wait_sec: float = 60.0,
+) -> ChatCycleResult:
+    """Непрочитанные, пока список не опустеет: прогон, пауза, снова если есть чаты."""
+    from hh import chat_ui
+    from hh.highlight import show_banner
+
+    result = ChatCycleResult()
+    show_banner(driver, "Только непрочитанные")
+    chat_ui.open_chat_list(
+        driver,
+        dumper=_RUN_DUMPER,
+        pause_sec=cfg.list_scroll_pause_sec,
+    )
+    chat_ui.set_only_unread(driver, True, pause_sec=cfg.list_scroll_pause_sec)
+
+    stuck_ids: tuple[str, ...] = ()
+    stuck_rounds = 0
+    while True:
+        cards = _collect_scrolled(driver, pause_sec=cfg.list_scroll_pause_sec)
+        logger.info("непрочитанные: {} чатов", len(cards))
+        for card in cards:
+            result.seen += 1
+            _handle_listed_card(
+                driver, card, result=result, cfg=cfg, force_open=True
+            )
+        logger.info("пауза {:.0f}s — смотрим, не пришли ли ещё непрочитанные", wait_sec)
+        time.sleep(wait_sec)
+        chat_ui.set_only_unread(driver, True, pause_sec=0.4)
+        left = _collect_scrolled(driver, pause_sec=cfg.list_scroll_pause_sec)
+        if not left:
+            logger.info("непрочитанных не осталось — дальше отклики")
+            result.stop_reason = SweepStopReason.LIST_END
+            break
+        ids = tuple(card.chat_id for card in left)
+        if ids == stuck_ids:
+            stuck_rounds += 1
+        else:
+            stuck_ids = ids
+            stuck_rounds = 0
+        if stuck_rounds >= 2:
+            logger.warning(
+                "те же {} непрочитанных не уходят из списка — дальше отклики",
+                len(ids),
+            )
+            result.stop_reason = SweepStopReason.LIST_END
+            break
+        logger.info("после паузы ещё {} непрочитанных — ещё прогон", len(left))
+    return result
+
+
+def run_today_audit(
+    driver: WebDriver,
+    *,
+    cfg: SweepConfig = DEFAULT_SWEEP,
+) -> ChatCycleResult:
+    """Все чаты за сегодня: не оставили ли вопрос без ответа."""
+    from hh import chat_ui
+    from hh.highlight import show_banner
+
+    result = ChatCycleResult()
+    show_banner(driver, "Чаты за сегодня")
+    chat_ui.open_chat_list(
+        driver,
+        dumper=_RUN_DUMPER,
+        pause_sec=cfg.list_scroll_pause_sec,
+    )
+    chat_ui.set_only_unread(driver, False, pause_sec=cfg.list_scroll_pause_sec)
+    cards = _collect_scrolled(
+        driver,
+        pause_sec=cfg.list_scroll_pause_sec,
+        today_only=True,
+    )
+    logger.info("чаты за сегодня: {}", len(cards))
+    for card in cards:
+        result.seen += 1
+        _handle_listed_card(
+            driver, card, result=result, cfg=cfg, force_open=False
+        )
+    result.stop_reason = SweepStopReason.LIST_END
+    return result
+
+
 def run_list_sweep(
     driver: WebDriver,
     *,
@@ -470,6 +674,21 @@ def _previews_match(list_preview: str | None, db_preview: str | None) -> bool:
     # список часто короче полного текста из треда
     n = min(len(a), len(b), 120)
     return n >= 12 and a[:n] == b[:n]
+
+
+def _scroll_chat_list_top(driver: WebDriver) -> None:
+    try:
+        driver.execute_script(
+            """
+            const root = document.querySelector("[data-qa='chatik-layout']");
+            if (!root) return;
+            root.querySelectorAll("[class*='scroll'], [class*='Scroll']").forEach((el) => {
+              try { el.scrollTop = 0; } catch (e) {}
+            });
+            """
+        )
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _scroll_chat_list(driver: WebDriver, *, pause_sec: float = 2.5) -> bool:
@@ -943,35 +1162,34 @@ def _open_and_handle(
                 _persist(live)
             return live
 
-        live = chat_ui.read_thread(driver, chat_id=live.chat_id)
-        live.vacancy_hh_id = thread.vacancy_hh_id or live.vacancy_hh_id
-        chat_ui.dump_thread(
-            driver, dumper=_RUN_DUMPER, label=f"chat_{thread.chat_id}_sent",
-            chat_id=thread.chat_id,
-        )
         result.verified += 1
         result.sent += 1
 
-        if live.needs_our_reply():
-            live.status = ChatThreadStatus.AWAITING_US
-            live.bot_paused = False
-            live.paused_reason = None
-            live.title = thread.title or live.title
-            inbound_now = live.last_inbound_text() or ""
+        follow = _wait_followup_inbound(
+            driver, chat_id=live.chat_id, timeout_sec=_FOLLOWUP_WAIT_SEC
+        )
+        if follow is not None and follow.needs_our_reply():
+            follow.vacancy_hh_id = thread.vacancy_hh_id or follow.vacancy_hh_id
+            follow.status = ChatThreadStatus.AWAITING_US
+            follow.bot_paused = False
+            follow.paused_reason = None
+            follow.title = thread.title or follow.title
+            inbound_now = follow.last_inbound_text() or ""
             if inbound_now:
-                live.last_message_preview = inbound_now[:500]
+                follow.last_message_preview = inbound_now[:500]
             show_banner(driver, "Сразу следующий вопрос бота")
             if cfg.persist and not cfg.dry_run:
-                _persist(live)
-            if _followups < 6:
+                _persist(follow)
+            if _followups < _MAX_FOLLOWUPS:
                 logger.info(
-                    "chat {}: бот рекрутера задал следующий вопрос — отвечаем следом ({})",
+                    "chat {}: за {:.0f} с пришёл ответ — отвечаем следом ({})",
                     live.chat_id,
+                    _FOLLOWUP_WAIT_SEC,
                     _followups + 1,
                 )
                 return _open_and_handle(
                     driver,
-                    live,
+                    follow,
                     result=result,
                     cfg=cfg,
                     _followups=_followups + 1,
@@ -980,10 +1198,17 @@ def _open_and_handle(
                 "chat {}: ещё есть вопрос, лимит следом — оставим awaiting_us",
                 live.chat_id,
             )
+            live = follow
         else:
+            live = chat_ui.read_thread(driver, chat_id=live.chat_id)
+            live.vacancy_hh_id = thread.vacancy_hh_id or live.vacancy_hh_id
             live.status = ChatThreadStatus.AWAITING_THEM
             show_banner(driver, "OK → awaiting_them")
             logger.info("chat {}: status → awaiting_them (verified)", live.chat_id)
+        chat_ui.dump_thread(
+            driver, dumper=_RUN_DUMPER, label=f"chat_{thread.chat_id}_sent",
+            chat_id=thread.chat_id,
+        )
 
         if cfg.persist:
             _persist(live)

@@ -82,6 +82,8 @@ class ChatThread:
     bot_paused: bool = False
     paused_reason: str | None = None
     last_message_preview: str | None = None
+    # Подпись времени в списке: «13:46» — сегодня, «пн» / «27.09» — старше.
+    list_time_label: str = ""
     last_message_at: datetime | None = None
     last_inbound_hash: str | None = None
     messages: list[ChatMessage] = field(default_factory=list)

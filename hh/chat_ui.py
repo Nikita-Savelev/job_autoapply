@@ -185,9 +185,61 @@ def _list_threads_once(driver: WebDriver) -> list[ChatThread]:
                 subtitle=subtitle,
                 url=f"{CHAT_LIST_URL}/{chat_id}",
                 last_message_preview=preview,
+                list_time_label=_cell_time_label(cell),
             )
         )
     return threads
+
+
+def _cell_time_label(cell: WebElement) -> str:
+    """Время последнего сообщения справа в карточке. Часто сосед <a>, не потомок."""
+    try:
+        own = cell.find_elements(By.CSS_SELECTOR, sel.CHAT_CELL_TIME)
+        if len(own) == 1:
+            text = (own[0].text or "").strip()
+            if text:
+                return text
+    except Exception:  # noqa: BLE001
+        pass
+    node = cell
+    for _ in range(5):
+        try:
+            node = node.find_element(By.XPATH, "./parent::*")
+            els = node.find_elements(By.CSS_SELECTOR, sel.CHAT_CELL_TIME)
+        except Exception:  # noqa: BLE001
+            break
+        if len(els) == 1:
+            return (els[0].text or "").strip()
+        if len(els) > 1:
+            break
+    return ""
+
+
+def set_only_unread(driver: WebDriver, enabled: bool, *, pause_sec: float = 1.0) -> None:
+    """Галочка «Только непрочитанные» в списке чатов."""
+    els = driver.find_elements(By.CSS_SELECTOR, sel.CHATIK_ONLY_UNREAD)
+    if not els:
+        logger.warning("нет галочки «Только непрочитанные»")
+        return
+    inp = els[0]
+    cls = inp.get_attribute("class") or ""
+    is_on = "unchecked" not in cls
+    if is_on == enabled:
+        return
+    target: WebElement = inp
+    try:
+        target = inp.find_element(By.XPATH, "./ancestor::label[1]")
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        target.click()
+    except Exception:  # noqa: BLE001
+        driver.execute_script("arguments[0].click();", target)
+    logger.info(
+        "фильтр «Только непрочитанные»: {}",
+        "вкл" if enabled else "выкл",
+    )
+    time.sleep(max(0.3, pause_sec))
 
 
 def _cell_last_message_preview(cell: WebElement) -> str | None:
