@@ -133,6 +133,7 @@ class VacancyStore:
         with self._conn.cursor() as cur:
             cur.execute("SELECT * FROM vacancies WHERE hh_id = %s", (hh_id,))
             row = cur.fetchone()
+        self._conn.commit()
         return self._row_to_vacancy(row) if row else None
 
     def list_by_status(self, *statuses: VacancyStatus) -> list[Vacancy]:
@@ -145,6 +146,7 @@ class VacancyStore:
                 ([s.value for s in statuses],),
             )
             rows = cur.fetchall()
+        self._conn.commit()
         return [self._row_to_vacancy(r) for r in rows]
 
     def mark(
@@ -199,6 +201,7 @@ class VacancyStore:
                 (VacancyStatus.APPLIED.value, start),
             )
             row = cur.fetchone()
+        self._conn.commit()
         return int(row["n"]) if row else 0
 
     def remaining_daily_applies(self, *, limit: int | None = None) -> int:
@@ -225,6 +228,7 @@ class VacancyStore:
         with self._conn.cursor() as cur:
             cur.execute("SELECT * FROM companies WHERE hh_id = %s", (hh_id,))
             row = cur.fetchone()
+        self._conn.commit()
         return self._row_to_company(row) if row else None
 
     def upsert_company(self, company: Company) -> Company:
@@ -307,7 +311,9 @@ class VacancyStore:
             cur.execute(
                 "SELECT status, COUNT(*)::int AS n FROM vacancies GROUP BY status"
             )
-            return {row["status"]: int(row["n"]) for row in cur.fetchall()}
+            counts = {row["status"]: int(row["n"]) for row in cur.fetchall()}
+        self._conn.commit()
+        return counts
 
     def _insert(self, v: Vacancy) -> None:
         with self._conn.cursor() as cur:
