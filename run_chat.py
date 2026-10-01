@@ -10,6 +10,7 @@ N чатов подряд, которые уже есть в БД, затем м
   python run_chat.py --once --debug              # один проход monitor
   python run_chat.py --once --force --debug      # полный список (редко)
   python run_chat.py --once --chat-id 5649719078 --fast --debug
+  python run_chat.py --unread --fast --debug     # непрочитанные, пауза 2 мин, выход
 """
 
 from __future__ import annotations
@@ -26,7 +27,12 @@ if str(ROOT) not in sys.path:
 
 from loguru import logger
 
-from chat.pipeline import SweepConfig, run_chat_cycle, set_run_context
+from chat.pipeline import (
+    SweepConfig,
+    run_chat_cycle,
+    run_unread_drain,
+    set_run_context,
+)
 from chat.store import ChatStore
 from config import env, load_env, load_resume_text, pause_between_actions_sec, pg_conninfo
 from logging_setup import setup_logging
@@ -59,6 +65,18 @@ def _cfg_from_args(args: argparse.Namespace) -> SweepConfig:
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Мониторинг/автоответы в чатах hh.ru"
+    )
+    parser.add_argument(
+        "--unread",
+        action="store_true",
+        help="Непрочитанные: ответить, подождать и выйти, если новых нет",
+    )
+    parser.add_argument(
+        "--unread-wait",
+        type=float,
+        default=120,
+        metavar="SEC",
+        help="Сколько ждать новые непрочитанные перед выходом (по умолчанию 120)",
     )
     parser.add_argument(
         "--once",
@@ -118,7 +136,13 @@ def main() -> int:
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
 
-    standard = not args.once and not args.loop and not args.chat_id and not args.force
+    standard = (
+        not args.once
+        and not args.loop
+        and not args.chat_id
+        and not args.force
+        and not args.unread
+    )
 
     load_env()
     setup_logging(debug=args.debug)
@@ -126,7 +150,9 @@ def main() -> int:
     if standard:
         cfg = replace(cfg, known_in_db_streak=max(1, int(args.known_streak)))
 
-    if cfg.force_full_sweep:
+    if args.unread:
+        mode = "unread"
+    elif cfg.force_full_sweep:
         mode = "force-sweep"
     elif cfg.known_in_db_streak > 0:
         mode = f"catch-up/{cfg.known_in_db_streak}"
@@ -159,13 +185,7 @@ def main() -> int:
     driver = create_driver()
     code = 0
 
-    def one_pass(pass_cfg: SweepConfig) -> int:
-        result = run_chat_cycle(
-            driver,
-            dry_run=pass_cfg.dry_run,
-            chat_id=args.chat_id,
-            cfg=pass_cfg,
-        )
+    def log_result(result) -> int:
         logger.info(
             "pass: seen={} created={} awaiting_us={} drafted={} sent={} "
             "verified={} escalated={} skipped={} paused={} stop={}",
@@ -184,8 +204,25 @@ def main() -> int:
             logger.error("{}", err)
         return 1 if result.errors else 0
 
+    def one_pass(pass_cfg: SweepConfig) -> int:
+        result = run_chat_cycle(
+            driver,
+            dry_run=pass_cfg.dry_run,
+            chat_id=args.chat_id,
+            cfg=pass_cfg,
+        )
+        return log_result(result)
+
     try:
-        if standard:
+        if args.unread:
+            logger.info(
+                "непрочитанные: ответ, затем пауза {:.0f}s; если новых нет — выход",
+                args.unread_wait,
+            )
+            code = log_result(
+                run_unread_drain(driver, cfg=cfg, wait_sec=float(args.unread_wait))
+            )
+        elif standard:
             logger.info(
                 "догон ленты: стоп после {} чатов подряд уже в БД, затем мониторинг",
                 cfg.known_in_db_streak,
@@ -201,7 +238,7 @@ def main() -> int:
                     cfg.sleep_after_sweep_sec,
                 )
                 time.sleep(cfg.sleep_after_sweep_sec)
-        else:
+        elif not args.unread:
             code = one_pass(cfg)
     finally:
         set_run_context(store=None, resume_text="", dumper=None)
