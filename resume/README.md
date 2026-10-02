@@ -7,6 +7,4 @@
 | `resume.txt` | Текст для промпта LLM (из PDF через `pdftotext`) |
 | `resume.pdf` | Оригинал PDF |
 
-Источник: `job_search/Савельев Никита (2).pdf`.
-
-Путь можно переопределить: `HH_RESUME_PATH=resume/resume.txt` в `.env`.
+Положи сюда свой `resume.txt` (и при желании `resume.pdf`). Путь можно переопределить: `HH_RESUME_PATH=resume/resume.txt` в `.env`.

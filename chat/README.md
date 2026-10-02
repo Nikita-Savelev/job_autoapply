@@ -3,25 +3,27 @@
 Автоответы в переписке на [hh.ru/chat](https://hh.ru/chat).
 
 - Решения и этапы: [PLAN.md](PLAN.md)
-## Запуск (тестовая версия)
+## Запуск
 
-Из `job_search/hh_autoapply/` (нужны Postgres, `.env` с LLM, залогиненный Chrome-профиль):
+Нужны Postgres, `.env` с LLM и залогиненный Chrome-профиль. Подробности: [../README.md](../README.md).
 
 ```bash
-# стандарт: догон до 5 чатов подряд уже в БД, затем мониторинг
+# непрочитанные, пауза 2 минуты, выход
+HH_PAUSE_SEC=1 .venv/bin/python run_chat.py --unread --fast --debug
+
+# догон до 5 чатов подряд уже в БД, затем мониторинг
 HH_PAUSE_SEC=1 .venv/bin/python run_chat.py --fast --debug
 
-# один прогон списка (ручной «Отправить» + Enter в терминале)
-.venv/bin/python run_chat.py --once --debug
-
-# один конкретный чат, без длинной паузы набора
+# один конкретный чат
 .venv/bin/python run_chat.py --once --chat-id 5649719078 --fast --debug
 
-# только посмотреть LLM-ответ в логе, без вставки в UI
+# только черновик в логе, без вставки в UI
 .venv/bin/python run_chat.py --once --chat-id 5649719078 --dry-run --fast --debug
 ```
 
-Бот **не** жмёт «Отправить»: вставил текст → ты отправил в браузере → Enter в терминале → проверка пузыря → `awaiting_them` в БД.
+Бот сам жмёт «Отправить», затем проверяет, что исходящее появилось в треде. Ручная отправка: `--manual-send`. `--fast` убирает паузу «набора»; пауза между действиями — `HH_PAUSE_SEC`.
+
+После отправки бот ждёт 5 секунд следующее входящее. Если оно пришло, отвечает сразу и снова ждёт 5 секунд.
 
 - Selenium: `hh/chat_ui.py` (тот же Chrome, что отклики)
 - БД: `chat/store.py` → таблицы `chat_threads` / `chat_messages` / `chat_actions`
@@ -38,7 +40,7 @@ HH_PAUSE_SEC=1 .venv/bin/python run_chat.py --fast --debug
 
 ## Отладка
 
-Подсветка + пауза 2.5с. Отправить пока жмёт человек; Enter в терминале → проверка пузыря → только тогда `awaiting_them`.
+Подсветка кликов: `HH_HIGHLIGHT=1`. Пауза между действиями: `HH_PAUSE_SEC`. Статус `awaiting_them` ставится только после подтверждённой отправки.
 
 ## Эскалация в Telegram
 
@@ -52,6 +54,6 @@ HH_PAUSE_SEC=1 .venv/bin/python run_chat.py --fast --debug
 
 - сообщения: `data-qa=chatik-chat-message-<id>`, наши — `chat-bubble_outgoing` / `message_my`
 - текст: `data-qa=chat-bubble-text`
-- ввод: `chatik-message-input` → `textarea[data-qa=text-input]` (отправка Enter)
+- ввод: `chatik-message-input` → `textarea[data-qa=text-input]`; отправка — кнопка «Отправить»
 - шапка: `participant-info-title`, `participant-info-details` → `/employer/<id>`
 

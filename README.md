@@ -3,16 +3,26 @@
 Автоматизация откликов на вакансии: поиск → матчинг (LLM) → отклик с сопроводительным письмом.  
 План: [PLAN.md](PLAN.md). Контекст для агента: [AGENTS.md](AGENTS.md).
 
+## Что нужно
+
+- Python 3.12
+- Google Chrome
+- Docker (Postgres на порту 5433)
+- Ключ OpenAI-совместимого API и текст резюме локально (`resume/resume.txt`, в git не входит)
+
 ## Быстрый старт
 
 ```bash
-cd job_autoapply   # или job_search/hh_autoapply в workspace MyProjects
+python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-docker compose up -d
-# .env: HH_SEARCH_URL, OPENAI_API_KEY (см. .env.example)
+cp .env.example .env
+# заполни OPENAI_API_KEY, контакты и при необходимости HH_TG_BOT_TOKEN
+docker compose up -d postgres
 python login.py
 ```
+
+`login.py` открывает Chrome. Войди в hh.ru и нажми Enter в терминале: сессия сохранится в `.chrome_profile/` (в git не входит).
 
 ### Отладка отклика (реальные клики + HTML/логи)
 
@@ -34,20 +44,44 @@ python run.py --dry-run --apply-limit 50
 
 ### Ежедневный широкий поиск (рекомендуемый режим)
 
-Python по всему сайту (без региона), 100 вакансий на странице.
-Уже виденные/откликнутые в БД пропускаются — можно гонять каждый день.
+Python по всему сайту (без региона), 50 вакансий на странице.
+Уже виденные и откликнутые в БД пропускаются.
 
-Первый полный прогон (вся история)::
+Вся история публикаций:
 
 ```bash
 python run_daily.py --period 0 --apply-limit 200
 ```
 
-Потом ежедневно только свежие (за неделю)::
+Только свежие за неделю. Без `--debug` пауза между действиями равна 0; окно Chrome — `--foreground`:
 
 ```bash
-python run_daily.py --period 7 --apply-limit 200
+python run_daily.py --period 7 --apply-limit 200 --foreground
 ```
+
+### Чат
+
+Тот же Chrome-профиль. Два процесса сразу запускать нельзя: профиль один.
+
+Непрочитанные, пауза 2 минуты, затем выход и закрытие окна:
+
+```bash
+HH_PAUSE_SEC=1 python run_chat.py --unread --fast --debug
+```
+
+Догон ленты до 5 чатов подряд, которые уже есть в БД, затем мониторинг:
+
+```bash
+HH_PAUSE_SEC=1 python run_chat.py --fast --debug
+```
+
+Отклики и чат в одном окне: после каждой поисковой ссылки — непрочитанные, раз за полный круг ссылок — все чаты за сегодня.
+
+```bash
+HH_PAUSE_SEC=1 python run_mix.py --fast --debug
+```
+
+После своего сообщения бот ждёт 5 секунд. Если за это время пришёл следующий вопрос, отвечает сразу и снова ждёт 5 секунд. Сообщение в чат отправляется само, без Enter в терминале. `--fast` отключает паузу «набора».
 
 ### Очередь нескольких узких поисков (общий лимит откликов)
 
