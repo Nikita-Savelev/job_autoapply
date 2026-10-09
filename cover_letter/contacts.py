@@ -15,7 +15,7 @@ RESUME_NAME_ALIASES = ("Савельев", "Савельева")
 DEFAULT_PHONE = "+374 98 99-61-56"
 DEFAULT_EMAIL = "nik1ta.savelev.2000@inbox.ru"
 DEFAULT_TELEGRAM = "@GamievNikita"
-DEFAULT_GITHUB = "https://github.com/Nikita-Savelev"
+DEFAULT_GITHUB = "https://github.com/Nikita-back"
 
 
 def candidate_phone() -> str:
